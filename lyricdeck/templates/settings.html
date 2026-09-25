@@ -4,7 +4,8 @@
 <form method="post" class="stack">
   <section class="card stack">
     <h2>Deck</h2>
-    <label>Deck name in Anki <input name="deck_name" value="{{ s.deck_name }}"></label>
+    <label>Deck name in Anki{% if japanese %} (Russian){% endif %} <input name="deck_name" value="{{ s.deck_name }}"></label>
+    {% if japanese %}<label>Deck name in Anki (Japanese) <input name="deck_name_ja" value="{{ s.deck_name_ja }}"></label>{% endif %}
   </section>
 
   <section class="card stack">

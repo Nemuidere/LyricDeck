@@ -1,7 +1,7 @@
 [project]
 name = "lyricdeck"
 version = "0.1.0"
-description = "Turn song lyrics into Anki flashcards (Russian → English)."
+description = "Turn song lyrics into Anki flashcards (Russian → English, optional Japanese → English)."
 requires-python = ">=3.12"
 license = "GPL-3.0-or-later"
 dependencies = [
@@ -17,6 +17,10 @@ dependencies = [
 claude = [
     "anthropic>=1.8.0",
 ]
+ja = [
+    "fugashi>=1.5.2",
+    "unidic-lite>=1.0.8",
+]
 
 [dependency-groups]
 dev = ["pytest>=8"]
@@ -27,6 +31,7 @@ build-backend = "hatchling.build"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+tmp_path_retention_policy = "none"  # test databases are large copies; don't keep them after the run
 
 [tool.uv.sources]
 ru-core-news-sm = { url = "https://github.com/explosion/spacy-models/releases/download/ru_core_news_sm-3.8.0/ru_core_news_sm-3.8.0-py3-none-any.whl" }

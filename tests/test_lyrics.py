@@ -17,6 +17,18 @@ def fake_get(path, **params):
     return next(r for r in RESULTS if f"get/{r['id']}" == path)
 
 
+def test_alternate_versions_rank_lower(monkeypatch):
+    inst = dict(RESULTS[0], id=7, trackName="Песня (inst)", plainLyrics="Другая строка\nЕщё")
+    monkeypatch.setattr(lyrics, "_get", lambda path, **p: [inst] + RESULTS)
+    assert [r["id"] for r in lyrics.search("x")] == [1, 7]
+
+
+def test_japanese_script_check():
+    assert lyrics.script_check("君と歩いた道を、まだ覚えてる", "ja")["fit"]
+    assert not lyrics.script_check("kimi to aruita michi wo", "ja")["importable"]
+    assert not lyrics.script_check("我爱你中国人民万岁", "ja")["fit"]  # Chinese: kanji without kana
+
+
 def test_clean_title():
     assert lyrics.clean_title("01. Кино - Группа крови", "Кино") == "Группа крови"
     assert lyrics.clean_title("Хочешь? (Official Video)") == "Хочешь?"
@@ -29,7 +41,7 @@ def test_russian_results_first(monkeypatch):
                "instrumental": False}
     monkeypatch.setattr(lyrics, "_get", lambda path, **p: [english] + RESULTS)
     found = lyrics.search("x")
-    assert [r["id"] for r in found] == [1, 9] and not found[1]["russian"]
+    assert [r["id"] for r in found] == [1, 9] and not found[1]["fit"]
 
 
 def test_search_cleans_and_dedupes(monkeypatch):

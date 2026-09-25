@@ -57,4 +57,6 @@ def init_app(app: Flask) -> None:
     Path(app.config["DATABASE"]).parent.mkdir(parents=True, exist_ok=True)
     with connect(app.config["DATABASE"]) as conn:
         conn.executescript(SCHEMA)
+        if "lang" not in {r["name"] for r in conn.execute("PRAGMA table_info(songs)")}:
+            conn.execute("ALTER TABLE songs ADD COLUMN lang TEXT NOT NULL DEFAULT 'ru'")
     app.teardown_appcontext(close_db)

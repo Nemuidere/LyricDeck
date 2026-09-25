@@ -27,13 +27,24 @@ SCHEMA = {
     "required": ["translations"], "additionalProperties": False,
 }
 
-SYSTEM = """You translate Russian song lyrics into English for language-learning flashcards.
+SYSTEM_RU = """You translate Russian song lyrics into English for language-learning flashcards.
 You get the lyrics of the songs, then a numbered list of items. Return one translation for every id.
 - word: the English meaning of the Russian dictionary form, as a short gloss (1-4 words per sense,
   at most 3 senses, comma-separated). Put the sense used in the given song line first.
 - phrase: a natural English translation of the phrase as it is used in its line.
 - line: a faithful, natural English translation of the whole line, as one line.
 Slang, swearing and poetic word order should be translated by meaning, not word by word."""
+
+SYSTEM_JA = """You translate Japanese song lyrics into English for language-learning flashcards.
+You get the lyrics of the songs, then a numbered list of items. Return one translation for every id.
+- word: the English meaning of the Japanese dictionary form, as a short gloss (1-4 words per sense,
+  at most 3 senses, comma-separated). Put the sense used in the given song line first. For onomatopoeia
+  and mimetic words, give the meaning and add "(mimetic)".
+- phrase: a natural English translation of the phrase as it is used in its line.
+- line: a faithful, natural English translation of the whole line, as one line. Fill in an omitted
+  subject naturally, without brackets, and keep the tone of 君/僕/俺/あなた. Leave English text as it is.
+Slang and poetic word order should be translated by meaning, not word by word."""
+SYSTEM = {"ru": SYSTEM_RU, "ja": SYSTEM_JA}
 
 
 class ClaudeError(Exception):
@@ -63,11 +74,12 @@ def _api_client(api_key: str):
     return anthropic, anthropic.Anthropic(api_key=api_key or None)
 
 
-def translate_api(items: list[dict], lyrics: list[str], model: str, api_key: str) -> tuple[dict[int, str], dict]:
+def translate_api(items: list[dict], lyrics: list[str], model: str, api_key: str,
+                  system: str = SYSTEM_RU) -> tuple[dict[int, str], dict]:
     anthropic, client = _api_client(api_key)
     try:
         with client.messages.stream(
-            model=model, max_tokens=32000, system=SYSTEM,
+            model=model, max_tokens=32000, system=system,
             messages=[{"role": "user", "content": build_prompt(items, lyrics)}],
             output_config={"format": {"type": "json_schema", "schema": SCHEMA}},
         ) as stream:
@@ -103,16 +115,17 @@ def claude_command() -> str:
     return path
 
 
-def _code_args(model: str) -> list[str]:
+def _code_args(model: str, system: str = SYSTEM_RU) -> list[str]:
     return [claude_command(), "-p", "--output-format", "json", "--json-schema", json.dumps(SCHEMA),
-            "--model", model, "--tools", "", "--system-prompt", SYSTEM, "--no-session-persistence",
+            "--model", model, "--tools", "", "--system-prompt", system, "--no-session-persistence",
             "--disable-slash-commands", "--strict-mcp-config", "--setting-sources", ""]
 
 
-def translate_code(items: list[dict], lyrics: list[str], model: str) -> tuple[dict[int, str], dict]:
+def translate_code(items: list[dict], lyrics: list[str], model: str,
+                   system: str = SYSTEM_RU) -> tuple[dict[int, str], dict]:
     with tempfile.TemporaryDirectory() as empty_dir:  # run outside any project so no project settings load
         try:
-            proc = subprocess.run(_code_args(model), input=build_prompt(items, lyrics), capture_output=True,
+            proc = subprocess.run(_code_args(model, system), input=build_prompt(items, lyrics), capture_output=True,
                                   text=True, cwd=empty_dir, timeout=TIMEOUT)
         except subprocess.TimeoutExpired as e:
             raise ClaudeError("Claude Code took too long. Tick fewer cards and try again.") from e

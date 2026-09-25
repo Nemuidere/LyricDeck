@@ -14,19 +14,21 @@
     <li>
       <div>
         <strong>{{ r.title }}</strong> <span class="muted">· {{ r.artist }}</span>
-        <div class="muted small">{% if r.album %}{{ r.album }} · {% endif %}{% if r.duration %}{{ r.duration // 60 }}:{{ "%02d" % (r.duration % 60) }} · {% endif %}{{ r.lines }} lines{% if r.synced %} · timed{% endif %}{% if not r.russian %} · <span class="warn">not in Russian</span>{% endif %}</div>
+        <div class="muted small">{% if r.album %}{{ r.album }} · {% endif %}{% if r.duration %}{{ r.duration // 60 }}:{{ "%02d" % (r.duration % 60) }} · {% endif %}{{ r.lines }} lines{% if r.synced %} · timed{% endif %}{% if r.note %} · <span class="warn">{{ r.note }}</span>{% endif %}</div>
         <div class="preview">{{ r.preview | join(" / ") }}</div>
       </div>
-      <form method="post" action="{{ url_for('songs.import_song') }}">
+      {% if r.importable %}
+      <form method="post" action="{{ lurl('songs.import_song') }}">
         <input type="hidden" name="lrclib_id" value="{{ r.id }}">
         <input type="hidden" name="q" value="{{ query }}">
         <button>Import</button>
       </form>
+      {% endif %}
     </li>
     {% endfor %}
   </ul>
   {% else %}
-  <p class="empty">Nothing found. Try the artist and title in Russian or in Latin letters, or <a href="{{ url_for('songs.new') }}">paste the lyrics</a>.</p>
+  <p class="empty">Nothing found. Try the artist and title in {{ lang_name }} or in Latin letters, or <a href="{{ lurl('songs.new') }}">paste the lyrics</a>.</p>
   {% endif %}
 {% endif %}
 {% endblock %}

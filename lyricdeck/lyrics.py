@@ -9,6 +9,7 @@ from .dictionary import USER_AGENT
 
 LRCLIB_URL = "https://lrclib.net/api"
 MAX_RESULTS = 10
+ALT_VERSION = re.compile(r"\b(inst|instrumental|off vocal|karaoke|live|mv|the first take|remix)\b", re.I)
 TITLE_JUNK = re.compile(r"\s*[(\[](official[^)\]]*|lyrics?|lyric video|audio|video|клип|премьера[^)\]]*|"
                         r"текст[^)\]]*|remaster[^)\]]*)[)\]]", re.I)
 
@@ -32,8 +33,29 @@ def russian_share(text: str) -> float:
     return sum("а" <= c.lower() <= "я" or c.lower() == "ё" for c in letters) / len(letters) if letters else 0.0
 
 
-def search(query: str) -> list[dict]:
-    """Candidates with plain lyrics, duplicates removed. Russian texts first (LRCLIB also holds
+def japanese_share(text: str) -> float:
+    """Share of letters that are kana or kanji; 0 when there is too little kana to be Japanese (Chinese)."""
+    letters = [c for c in text if c.isalpha()]
+    kana = sum("぀" <= c <= "ヿ" for c in letters)
+    japanese = kana + sum("一" <= c <= "鿿" or c == "々" for c in letters)
+    return japanese / len(letters) if letters and kana >= 0.1 * japanese else 0.0
+
+
+def script_check(text: str, lang: str) -> dict:
+    """Does the text look like lyrics in the language? LRCLIB also holds translations and romaji."""
+    if lang == "ja":
+        share = japanese_share(text)
+        if share >= 0.8:
+            return {"fit": True, "note": "", "importable": True}
+        if share >= 0.2:
+            return {"fit": False, "note": "mixed / translation", "importable": True}
+        return {"fit": False, "note": "romaji or not Japanese — can't be analysed", "importable": False}
+    fit = russian_share(text) >= 0.5
+    return {"fit": fit, "note": "" if fit else "not in Russian", "importable": True}
+
+
+def search(query: str, lang: str = "ru") -> list[dict]:
+    """Candidates with plain lyrics, duplicates removed. Texts in the language first (LRCLIB also holds
     translations), otherwise in LRCLIB's order."""
     results, seen = [], set()
     for r in _get("search", q=query):
@@ -50,9 +72,8 @@ def search(query: str) -> list[dict]:
             "id": r["id"], "artist": r.get("artistName") or "", "title": title,
             "album": r.get("albumName") or "", "duration": int(r.get("duration") or 0),
             "synced": bool(r.get("syncedLyrics")), "lines": len(lines), "preview": lines[:2],
-            "russian": russian_share(plain) >= 0.5,
-        })
-    return sorted(results, key=lambda r: not r["russian"])[:MAX_RESULTS]
+        } | script_check(plain, lang))
+    return sorted(results, key=lambda r: (not r["fit"], bool(ALT_VERSION.search(r["title"]))))[:MAX_RESULTS]
 
 
 def fetch(lrclib_id: int) -> dict:

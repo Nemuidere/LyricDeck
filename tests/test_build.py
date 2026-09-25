@@ -32,10 +32,11 @@ def dict_db(tmp_path_factory):
 
 
 @pytest.fixture
-def client(dict_db, tmp_path):
-    path = tmp_path / "app.db"
-    shutil.copy(dict_db, path)
-    c = create_app({"TESTING": True, "DATABASE": str(path)}).test_client()
+def client(dict_db):
+    with connect(str(dict_db)) as conn:
+        conn.executescript("DELETE FROM songs; DELETE FROM known; DELETE FROM settings; DELETE FROM translations;"
+                           "DELETE FROM usage; DELETE FROM claude_usage;")
+    c = create_app({"TESTING": True, "DATABASE": str(dict_db)}).test_client()
     c.post("/songs/new", data={"artist": "Tester", "title": "Made Up", "lyrics": LYRICS})
     return c
 
@@ -68,7 +69,7 @@ def test_export_apkg(client):
     fields = {"sel": ["0", "1"], "deck_name": "Test deck"}
     for i, (key, russian, english) in enumerate([("ru|word|любовь|NOUN", "любо́вь", "love"),
                                                    ("ru|line|x", "Я иду́ домо́й", "I'm going home")]):
-        fields |= {f"key-{i}": key, f"kind-{i}": "word" if i == 0 else "line", f"russian-{i}": russian,
+        fields |= {f"key-{i}": key, f"kind-{i}": "word" if i == 0 else "line", f"front-{i}": russian,
                    f"english-{i}": english, f"source-{i}": "Tester – Made Up", f"tags-{i}": "Tester_Made_Up"}
     res = client.post("/export", data=fields)
     assert res.status_code == 200 and res.headers["Content-Disposition"].endswith("Test_deck.apkg")
@@ -97,7 +98,7 @@ class open_collection:
 def test_stable_guid_across_exports(client):
     def guid(english):
         data = {"sel": ["0"], "deck_name": "D", "key-0": "ru|word|любовь|NOUN", "kind-0": "word",
-                "russian-0": "любо́вь", "english-0": english}
+                "front-0": "любо́вь", "english-0": english}
         with zipfile.ZipFile(io.BytesIO(client.post("/export", data=data).data)) as z, open_collection(z) as conn:
             return conn.execute("SELECT guid FROM notes").fetchone()[0]
     assert guid("love") == guid("love, affection")
@@ -119,14 +120,14 @@ def test_send_to_anki(client, monkeypatch):
 
     monkeypatch.setattr(deck, "_anki", fake_anki)
     data = {"sel": ["0"], "deck_name": "D", "target": "anki", "key-0": "ru|word|любовь|NOUN", "kind-0": "word",
-            "russian-0": "любо́вь", "english-0": "love"}
+            "front-0": "любо́вь", "english-0": "love"}
     assert "1 new and 0 updated" in client.post("/export", data=data).get_json()["message"]
     assert "0 new and 1 updated" in client.post("/export", data=data).get_json()["message"]
     assert calls.count("createModel") == 2 and "updateNoteFields" in calls
 
 
 def test_send_to_anki_offline(client):
-    data = {"sel": ["0"], "deck_name": "D", "target": "anki", "key-0": "k", "kind-0": "word", "russian-0": "x"}
+    data = {"sel": ["0"], "deck_name": "D", "target": "anki", "key-0": "k", "kind-0": "word", "front-0": "x"}
     assert "Could not reach Anki" in client.post("/export", data=data).get_json()["message"]
 
 

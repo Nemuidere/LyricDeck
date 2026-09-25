@@ -19,7 +19,8 @@ class FakeMyMemory:
     def __init__(self, keep_newlines=True, quota_after=None):
         self.calls, self.keep_newlines, self.quota_after = [], keep_newlines, quota_after
 
-    def __call__(self, text, email):
+    def __call__(self, text, email, langpair="ru|en"):
+        self.langpair = langpair
         self.calls.append((text, email))
         if self.quota_after is not None and len(self.calls) > self.quota_after:
             raise translate.QuotaExceeded(None)

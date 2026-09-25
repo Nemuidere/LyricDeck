@@ -1,13 +1,13 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="row">
-  <h1>Songs</h1>
+  <h1>{{ lang_name }} songs</h1>
   <div class="row">
-    <form method="get" action="{{ url_for('songs.find') }}" class="search">
+    <form method="get" action="{{ lurl('songs.find') }}" class="search">
       <input name="q" placeholder="Find lyrics online: artist and title">
       <button class="ghost">Search</button>
     </form>
-    <a class="button" href="{{ url_for('songs.new') }}">+ Paste lyrics</a>
+    <a class="button" href="{{ lurl('songs.new') }}">+ Paste lyrics</a>
   </div>
 </div>
 {% if songs %}
@@ -21,8 +21,8 @@
       <div class="muted small">{% set n = song.lyrics.splitlines() | length %}{{ n }} line{{ 's' if n != 1 }} · added {{ song.added_at[:10] }}</div>
     </div>
     <div class="actions">
-      <a class="button ghost" href="{{ url_for('songs.edit', song_id=song.id) }}">Edit</a>
-      <form method="post" action="{{ url_for('songs.delete', song_id=song.id) }}"
+      <a class="button ghost" href="{{ lurl('songs.edit', song_id=song.id) }}">Edit</a>
+      <form method="post" action="{{ lurl('songs.delete', song_id=song.id) }}"
             onsubmit="return confirm('Delete this song?')">
         <button class="ghost danger">Delete</button>
       </form>

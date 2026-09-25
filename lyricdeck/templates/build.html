@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Make a deck</h1>
+<h1>Make a {{ lang_name }} deck</h1>
 {% if not ready %}
-<p class="flash">The offline dictionary isn't set up yet. Run <code>uv run flask --app lyricdeck init-data</code> once, then reload this page.</p>
+<p class="flash">The offline {{ lang_name }} dictionary isn't set up yet. Run <code>uv run flask --app lyricdeck init-data{{ " --lang ja" if lang == "ja" }}</code> once, then reload this page.</p>
 {% elif not songs %}
-<p class="empty">No songs yet. <a href="{{ url_for('songs.new') }}">Add a song</a> first.</p>
+<p class="empty">No songs yet. <a href="{{ lurl('songs.new') }}">Add a song</a> first.</p>
 {% else %}
-<form method="post" action="{{ url_for('build.review') }}" class="stack">
+<form method="post" action="{{ lurl('build.review') }}" class="stack">
   <section class="card">
     <h2>Songs</h2>
     <p class="muted small">Cards are ordered song by song in the order you tick them.</p>

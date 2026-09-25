@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Japanese is not installed</h1>
+<section class="card stack">
+  <p>Japanese support is optional, because its dictionary for splitting words adds about 250 MB. To turn it on:</p>
+  <ol>
+    <li>Install the Japanese packages: <code>uv sync --extra ja</code> (add <code>--extra claude</code> too if you use Claude with an API key).</li>
+    <li>Download the Japanese dictionary (JMdict, about 11 MB): <code>uv run flask --app lyricdeck init-data --lang ja</code></li>
+    <li>Restart LyricDeck and open this page again.</li>
+  </ol>
+  <p class="muted small">Russian keeps working either way; the two languages never share songs, known words or decks.</p>
+</section>
+{% endblock %}

@@ -22,8 +22,9 @@ WORD_RE = re.compile(rf"[{CYRILLIC}A-Za-z]+(?:-[{CYRILLIC}A-Za-z]+)*|[^\s{CYRILL
 MIXED_WORD_RE = re.compile(rf"[{CYRILLIC}A-Za-z]*[{CYRILLIC}][{CYRILLIC}A-Za-z]*")
 STRESS_RE = re.compile(rf"́|(?<=[{CYRILLIC}])['’`´]")
 REPEAT_RE = re.compile(r"\s*[(\[]?\s*(?:[xх×]\s*(\d+)|(\d+)\s*[xх×]|(\d+)\s*раза?)\s*[)\]]?\s*$", re.I)
-SECTION_WORDS = r"припев|куплет|бридж|интро|аутро|проигрыш|chorus|verse|bridge|intro|outro|hook|хук|pre-chorus|пре-припев"
-SECTION_RE = re.compile(rf"^\s*(\[.*\]|\(?\s*({SECTION_WORDS})\b[^)\n]*\)?:?)\s*$", re.I)
+SECTION_WORDS = (r"припев|куплет|бридж|интро|аутро|проигрыш|chorus|verse|bridge|intro|outro|hook|хук|pre-chorus|пре-припев"
+                 r"|大サビ|サビ|[ABC]メロ|間奏|イントロ|アウトロ")
+SECTION_RE = re.compile(rf"^\s*(\[.*\]|【.*】|\(?\s*({SECTION_WORDS})\b[^)\n]*\)?:?)\s*$", re.I)
 
 SMALL_PYMORPHY = {"PREP", "CONJ", "PRCL", "INTJ", "NPRO"}
 # spaCy (Universal Dependencies) part of speech -> compatible pymorphy3 tags.
@@ -51,6 +52,7 @@ class Token:
     small: bool = False            # conjunction, preposition, particle, pronoun, ...
     known: bool = True             # False when the word is not in the pymorphy3 dictionary
     alternatives: list[str] = field(default_factory=list)  # other possible dictionary forms
+    extra: dict = field(default_factory=dict)              # language-specific data (e.g. Japanese readings)
 
     @property
     def is_word(self) -> bool:
@@ -85,7 +87,7 @@ def normalize(line: str) -> str:
     return MIXED_WORD_RE.sub(lambda m: _fix_script(m.group()), STRESS_RE.sub("", line))
 
 
-def clean_lyrics(text: str, count_repeats: bool = True) -> list[str]:
+def clean_lyrics(text: str, count_repeats: bool = True, normalize_line: Callable[[str], str] | None = None) -> list[str]:
     """Lyrics text -> lines to analyze.
 
     Section labels ([Припев], Chorus:, ...) and blank lines are dropped. Repeat markers such as
@@ -98,7 +100,7 @@ def clean_lyrics(text: str, count_repeats: bool = True) -> list[str]:
         times = 1
         if m := REPEAT_RE.search(raw):
             times, raw = int(next(g for g in m.groups() if g)), raw[: m.start()]
-        line = normalize(raw).strip().strip("()").strip()
+        line = (normalize_line or normalize)(raw).strip().strip("()").strip()
         if not line:
             continue
         if count_repeats:

@@ -97,13 +97,23 @@ def import_data(conn: sqlite3.Connection, raw_dir: Path) -> dict[str, int]:
 
 
 @click.command("init-data")
-def init_data_command() -> None:
-    """Download and import the offline dictionary and frequency list."""
+@click.option("--lang", type=click.Choice(["ru", "ja"]), default="ru", show_default=True,
+              help="Language whose dictionary to download: ru (OpenRussian + frequency list) or ja (JMdict).")
+def init_data_command(lang: str) -> None:
+    """Download and import the offline dictionary for a language."""
     from .db import connect
 
     db_path = Path(current_app.config["DATABASE"])
+    raw_dir = db_path.parent / "raw"
+    raw_dir.mkdir(parents=True, exist_ok=True)
     with connect(str(db_path)) as conn:
-        counts = import_data(conn, db_path.parent / "raw")
+        if lang == "ja":
+            from . import japanese
+            counts = japanese.import_data(conn, raw_dir, _download)
+            if not japanese.available():
+                click.echo("Note: the Japanese packages are not installed yet. Run: uv sync --extra ja")
+        else:
+            counts = import_data(conn, raw_dir)
     click.echo("Imported " + ", ".join(f"{n} {what}" for what, n in counts.items()))
 
 

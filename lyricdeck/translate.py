@@ -49,10 +49,11 @@ def store(conn: sqlite3.Connection, provider: str, results: dict[str, str]) -> N
 
 
 def _store(conn: sqlite3.Connection, provider: str, results: dict[str, str], chars: int, requests: int) -> None:
+    """Cache results under `provider`; the daily quota is counted for MyMemory as a whole."""
     store(conn, provider, results)
     conn.execute("INSERT INTO usage (provider, day, chars, requests) VALUES (?, ?, ?, ?) "
                  "ON CONFLICT (provider, day) DO UPDATE SET chars = chars + excluded.chars, "
-                 "requests = requests + excluded.requests", (provider, today(), chars, requests))
+                 "requests = requests + excluded.requests", ("mymemory", today(), chars, requests))
     conn.commit()
 
 
@@ -67,8 +68,8 @@ def _batches(texts: list[str]) -> list[list[str]]:
     return batches + [current] if current else batches
 
 
-def _mymemory_request(text: str, email: str) -> str:
-    params = {"q": text, "langpair": "ru|en"} | ({"de": email} if email else {})
+def _mymemory_request(text: str, email: str, langpair: str = "ru|en") -> str:
+    params = {"q": text, "langpair": langpair} | ({"de": email} if email else {})
     req = urllib.request.Request(f"{MYMEMORY_URL}?{urllib.parse.urlencode(params)}", headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(req, timeout=30) as r:
         data = json.load(r)
@@ -82,26 +83,27 @@ def _mymemory_request(text: str, email: str) -> str:
     return translated.strip()
 
 
-def mymemory(conn: sqlite3.Connection, texts: list[str], email: str = "") -> dict[str, str]:
+def mymemory(conn: sqlite3.Connection, texts: list[str], email: str = "", langpair: str = "ru|en",
+             provider: str = "mymemory") -> dict[str, str]:
     """Translate texts (cached ones are free). Raises QuotaExceeded after saving what was done."""
-    results = cached(conn, "mymemory", texts)
+    results = cached(conn, provider, texts)
     todo = [t for t in dict.fromkeys(texts) if t not in results and t.strip()]
     done, chars, requests = {}, 0, 0
     try:
         for batch in _batches(todo):
             joined = "\n".join(batch)
-            lines = _mymemory_request(joined, email).split("\n")
+            lines = _mymemory_request(joined, email, langpair).split("\n")
             chars, requests = chars + len(joined), requests + 1
             if len(lines) != len(batch):  # line breaks were not preserved: one request per text
                 lines = []
                 for text in batch:
                     time.sleep(REQUEST_GAP)
-                    lines.append(_mymemory_request(text, email))
+                    lines.append(_mymemory_request(text, email, langpair))
                     chars, requests = chars + len(text), requests + 1
             done |= dict(zip(batch, lines, strict=True))
             time.sleep(REQUEST_GAP)
     finally:
-        _store(conn, "mymemory", done, chars, requests)
+        _store(conn, provider, done, chars, requests)
     return results | done
 
 

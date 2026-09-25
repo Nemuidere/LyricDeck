@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<form method="post" action="{{ url_for('build.export') }}" id="review">
+<form method="post" action="{{ lurl('build.export') }}" id="review">
   <div class="row">
     <h1>Review cards</h1>
     <div class="row">
@@ -19,10 +19,10 @@
     {% endif %}
     <div class="options">
       <label class="check"><input type="checkbox" id="skip-small" checked> Skip small words</label>
-      <label class="inline">Hide common Russian words
+      <label class="inline">Hide common {{ lang_name }} words
         <select id="common">
-          <option value="0">off</option><option value="100">top 100</option>
-          <option value="300">top 300</option><option value="1000">top 1000</option>
+          <option value="0">off</option>
+          {% for n in common_options %}<option value="{{ n }}">top {{ n }}</option>{% endfor %}
         </select>
       </label>
       <label class="check"><input type="checkbox" id="show-known"> Show known words</label>
@@ -48,25 +48,26 @@
         data-resolved="{{ c.resolved | int }}" data-index="{{ loop.index0 }}" data-alts='{{ c.alternatives | tojson }}'>
       <td class="tick"><input type="checkbox" class="sel" name="sel" value="{{ loop.index0 }}" {{ "checked" if c.kind != "word" }}></td>
       <td class="front">
-        <div class="ru">{{ c.russian | safe }}</div>
-        {% if c.sung %}<div class="sung">{{ c.sung }}{% if c.grammar %} <span class="muted">· {{ c.grammar }}</span>{% endif %}</div>{% endif %}
+        <div class="ru">{{ c.front | ruby }}</div>
+        {% if c.sung %}<div class="sung">{{ c.sung | ruby }}{% if c.grammar %} <span class="muted">· {{ c.grammar }}</span>{% endif %}</div>{% endif %}
+        {% if c.pitch %}<div class="muted small" title="pitch accent (0 = flat)">pitch [{{ c.pitch }}]</div>{% endif %}
         {% if c.extra %}<div class="muted small">{{ c.extra }}</div>{% endif %}
         {% if c.alternatives %}
         <select class="alt" title="Other possible dictionary form">
-          <option value="-1">✓ {{ c.russian | striptags }}</option>
-          {% for a in c.alternatives %}<option value="{{ loop.index0 }}">or: {{ a.russian }}</option>{% endfor %}
+          <option value="-1">✓ {{ c.front | striptags }}</option>
+          {% for a in c.alternatives %}<option value="{{ loop.index0 }}">or: {{ a.front }}{% if a.english %} — {{ a.english[:40] }}{% endif %}</option>{% endfor %}
         </select>
         {% endif %}
       </td>
       <td class="back">
         <input name="english-{{ loop.index0 }}" value="{{ c.english }}" placeholder="{{ 'no dictionary entry — type a translation' if not c.resolved else 'translation' }}">
-        {% if c.context %}<div class="ctx">{{ c.context | safe }}</div>{% endif %}
+        {% if c.context %}<div class="ctx">{{ c.context | ruby }}</div>{% endif %}
         {% if with_context and c.context_plain %}<div class="ctx-en">{{ c.context_english | replace("\n", " / ") }}</div>{% endif %}
       </td>
       <td class="meta">
         <span class="badge">{{ c.kind }}</span>
         <span title="times in the selected songs">×{{ c.count }}</span>
-        {% if c.rank %}<span class="muted small" title="rank in the Russian frequency list">#{{ c.rank }}</span>{% endif %}
+        {% if c.rank %}<span class="muted small" title="rank in the {{ lang_name }} frequency list">#{{ c.rank }}</span>{% endif %}
         <button type="button" class="ghost known-btn" title="Mark as known: hidden from now on">{{ "unknown" if c.known else "known ✓" }}</button>
       </td>
     </tr>
@@ -78,6 +79,11 @@
 {% block scripts %}
 <script>
 const $ = s => document.querySelector(s);
+const FURIGANA = / ?([^ >\[\]<]+?)\[([^\]]*)\]/g;
+const esc = s => s.replace(/[&<>"]/g, ch => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[ch]));
+const rubyize = s => esc(s || "").replace(FURIGANA, "<ruby>$1<rt>$2</rt></ruby>");
+// Text without stress marks or furigana, for translators.
+const plain = s => (s || "").replace(/<[^>]*>/g, "").replace(/\u0301/g, "").replace(FURIGANA, "$1").trim();
 const table = $("table.cards");
 const rows = [...table.querySelectorAll("tr.card-row")];
 const KIND = {word: 0, phrase: 1, line: 2};
@@ -85,7 +91,7 @@ const CARDS = {{ cards | tojson }};
 
 rows.forEach(r => {
   const c = CARDS[r.dataset.index];
-  for (const f of ["key", "kind", "russian", "sung", "grammar", "extra", "context", "context_english", "source"]) {
+  for (const f of ["key", "kind", "front", "sung", "grammar", "extra", "reading", "pitch", "context", "context_english", "source"]) {
     const input = Object.assign(document.createElement("input"), {type: "hidden", name: `${f}-${r.dataset.index}`, value: c[f]});
     r.appendChild(input);
   }
@@ -147,7 +153,7 @@ table.addEventListener("click", async e => {
   if (!e.target.classList.contains("known-btn")) return;
   const r = e.target.closest("tr");
   const known = r.dataset.known !== "1";
-  await fetch("{{ url_for('build.known') }}", {method: "POST", headers: {"Content-Type": "application/json"},
+  await fetch("{{ lurl('build.known') }}", {method: "POST", headers: {"Content-Type": "application/json"},
     body: JSON.stringify({key: r.querySelector(`[name^="key-"]`).value, known})});
   r.dataset.known = known ? "1" : "0";
   e.target.textContent = known ? "unknown" : "known ✓";
@@ -158,10 +164,10 @@ table.addEventListener("change", e => {
   if (e.target.classList.contains("sel")) translateSoon();
   if (e.target.classList.contains("alt")) {
     const r = e.target.closest("tr"), c = CARDS[r.dataset.index], i = +e.target.value;
-    const pick = i < 0 ? {key: c.key, russian: c.russian, english: c.english, extra: c.extra} : JSON.parse(r.dataset.alts)[i];
-    for (const f of ["key", "russian", "extra"]) r.querySelector(`[name="${f}-${r.dataset.index}"]`).value = pick[f];
+    const pick = i < 0 ? c : JSON.parse(r.dataset.alts)[i];
+    for (const f of ["key", "front", "extra", "reading"]) r.querySelector(`[name="${f}-${r.dataset.index}"]`).value = pick[f] || "";
     r.querySelector(`[name="english-${r.dataset.index}"]`).value = pick.english;
-    r.querySelector(".front .ru").textContent = pick.russian;
+    r.querySelector(".front .ru").innerHTML = rubyize(pick.front);
   }
   stats();
 });
@@ -203,7 +209,7 @@ async function translateMissing() {
       status.textContent = `Translating… ${i}/${texts.length}`;
       const batch = texts.slice(i, i + 20);
       batch.forEach(t => requested.add(t));
-      const res = await fetch("{{ url_for('build.translate_texts') }}", {method: "POST",
+      const res = await fetch("{{ lurl('build.translate_texts') }}", {method: "POST",
         headers: {"Content-Type": "application/json"}, body: JSON.stringify({texts: batch})});
       const data = await res.json();
       Object.assign(found, data.translations);
@@ -242,8 +248,8 @@ $("#claude-btn")?.addEventListener("click", async e => {
   chosen.forEach(r => {
     const c = CARDS[r.dataset.index], i = +r.dataset.index;
     if (c.kind === "word" && CLAUDE.words)
-      items.push({id: i, kind: "word", text: r.querySelector(".front .ru").textContent.replace(/\u0301/g, ""),
-                  sung: c.sung.replace(/\u0301/g, ""), line: c.context_plain[0] || ""});
+      items.push({id: i, kind: "word", text: plain(r.querySelector(`[name="front-${i}"]`).value),
+                  sung: plain(c.sung), line: c.context_plain[0] || ""});
     if (c.kind !== "word" && CLAUDE.lines)
       items.push({id: i, kind: c.kind, text: c.plain, line: c.kind === "phrase" ? c.context_plain[0] || "" : ""});
   });
@@ -256,7 +262,7 @@ $("#claude-btn")?.addEventListener("click", async e => {
   e.target.disabled = true;
   status.textContent = `Asking Claude (${CLAUDE.model}) to translate ${items.length} items… this can take a minute.`;
   try {
-    const res = await fetch("{{ url_for('build.translate_claude') }}", {method: "POST",
+    const res = await fetch("{{ lurl('build.translate_claude') }}", {method: "POST",
       headers: {"Content-Type": "application/json"}, body: JSON.stringify({songs: SONG_IDS, items})});
     const data = await res.json(), t = data.translations;
     chosen.forEach(r => {

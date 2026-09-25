@@ -8,10 +8,14 @@
 </head>
 <body>
   <header>
-    <a class="brand" href="{{ url_for('songs.index') }}">LyricDeck</a>
+    <a class="brand" href="{{ lurl('songs.index') }}">LyricDeck</a>
+    <div class="langs" title="Each language has its own songs, known words and decks">
+      <a href="{{ url_for('songs.index') }}" class="{{ 'on' if lang == 'ru' }}">RU</a>
+      <a href="{{ url_for('ja_songs.index') }}" class="{{ 'on' if lang == 'ja' }}">JA</a>
+    </div>
     <nav>
-      <a href="{{ url_for('songs.index') }}">Songs</a>
-      <a href="{{ url_for('build.build_form') }}">Make a deck</a>
+      <a href="{{ lurl('songs.index') }}">Songs</a>
+      <a href="{{ lurl('build.build_form') }}">Make a deck</a>
       <a href="{{ url_for('settings.page') }}">Settings</a>
     </nav>
   </header>

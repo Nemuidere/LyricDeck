@@ -6,13 +6,14 @@ from datetime import datetime, timezone
 
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
 
-from . import claude, translate
+from . import claude, japanese, translate
 from .db import get_db, get_setting, set_setting
 
 bp = Blueprint("settings", __name__)
 
 DEFAULTS = {
     "deck_name": "LyricDeck",
+    "deck_name_ja": "LyricDeck Japanese",
     "line_translator": "mymemory",    # mymemory | none
     "mymemory_email": "",
     "context_english": "1",           # show the English of the song lines on word cards
@@ -110,7 +111,9 @@ def claude_test():
 def page():
     if request.method == "POST":
         form = request.form
-        set_setting("deck_name", form.get("deck_name", "").strip() or DEFAULTS["deck_name"])
+        for key in ("deck_name", "deck_name_ja"):
+            if key in form:
+                set_setting(key, form.get(key, "").strip() or DEFAULTS[key])
         set_setting("line_translator", form.get("line_translator") if form.get("line_translator") in TRANSLATORS else "mymemory")
         set_setting("mymemory_email", form.get("mymemory_email", "").strip())
         set_setting("units", ",".join(form.getlist("unit")) or "word")
@@ -121,4 +124,5 @@ def page():
         return redirect(url_for("settings.page"))
     values = {key: setting(key) for key in DEFAULTS}
     return render_template("settings.html", s=values, translators=TRANSLATORS, mm=mymemory_status(), cc=claude_config(),
+                           japanese=japanese.available(),
                            units={"word": "Words", "phrase": "Phrases", "line": "Lines"})

@@ -50,7 +50,7 @@ def test_claude_code_error(monkeypatch):
 def test_endpoint_caches_and_tracks_usage(client, monkeypatch):
     calls = []
 
-    def fake(items, lyrics, model, api_key):
+    def fake(items, lyrics, model, api_key, system=None):
         calls.append(items)
         return {i["id"]: f"EN {i['text']}" for i in items}, {"input_tokens": 100, "output_tokens": 20, "cost_usd": 0.01}
 
