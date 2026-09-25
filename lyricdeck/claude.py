@@ -124,7 +124,8 @@ def translate_code(items: list[dict], lyrics: list[str], model: str) -> tuple[di
         raise ClaudeError(f"Claude Code failed: {str(out.get('result') or proc.stderr)[:300]}")
     usage = out.get("usage") or {}
     return _result(out.get("structured_output") or {}, items), {
-        "input_tokens": usage.get("input_tokens", 0), "output_tokens": usage.get("output_tokens", 0),
+        "input_tokens": sum(usage.get(k, 0) for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")),
+        "output_tokens": usage.get("output_tokens", 0),
         "cost_usd": out.get("total_cost_usd"),
     }
 

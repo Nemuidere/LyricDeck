@@ -155,6 +155,7 @@ table.addEventListener("click", async e => {
 });
 
 table.addEventListener("change", e => {
+  if (e.target.classList.contains("sel")) translateSoon();
   if (e.target.classList.contains("alt")) {
     const r = e.target.closest("tr"), c = CARDS[r.dataset.index], i = +e.target.value;
     const pick = i < 0 ? {key: c.key, russian: c.russian, english: c.english, extra: c.extra} : JSON.parse(r.dataset.alts)[i];
@@ -165,8 +166,8 @@ table.addEventListener("change", e => {
   stats();
 });
 
-$("#coverage")?.addEventListener("input", applyCoverage);
-["#skip-small", "#common", "#show-known"].forEach(s => $(s).addEventListener("change", () => { refresh(); applyCoverage(); }));
+$("#coverage")?.addEventListener("input", () => { applyCoverage(); translateSoon(); });
+["#skip-small", "#common", "#show-known"].forEach(s => $(s).addEventListener("change", () => { refresh(); applyCoverage(); translateSoon(); }));
 $("#order").addEventListener("change", reorder);
 $("#review").addEventListener("submit", () => {
   rows.filter(r => !ticked(r)).forEach(r => r.querySelectorAll("input").forEach(el => el.disabled = true));
@@ -179,27 +180,50 @@ const CLAUDE = {{ claude | tojson }}, SONG_IDS = {{ songs | map(attribute="id") 
 rows.forEach(r => { const e = r.querySelector("input[name^=english]"); e.dataset.auto = e.value; });
 const setAuto = (input, value) => { if (input.value === input.dataset.auto) { input.value = value; input.dataset.auto = value; } };
 
+const requested = new Set();
+let translating = false, quotaHit = false, again = false;
+
+// Translate ticked cards only, so the free daily quota isn't spent on cards that won't be exported.
 async function translateMissing() {
-  if (TRANSLATOR !== "mymemory") return;
+  if (TRANSLATOR !== "mymemory" || quotaHit) return;
+  if (translating) { again = true; return; }
   const status = $("#translate-status");
   const englishOf = r => r.querySelector(`[name="english-${r.dataset.index}"]`);
   const ctxOf = r => r.querySelector(`[name="context_english-${r.dataset.index}"]`);
-  const needLine = rows.filter(r => r.dataset.kind !== "word" && !englishOf(r).value);
-  const needCtx = WITH_CONTEXT ? rows.filter(r => CARDS[r.dataset.index].context_plain.length && !ctxOf(r).value) : [];
+  const chosen = rows.filter(r => ticked(r) && !r.hidden);
+  const needLine = chosen.filter(r => r.dataset.kind !== "word" && !englishOf(r).value);
+  const needCtx = WITH_CONTEXT ? chosen.filter(r => CARDS[r.dataset.index].context_plain.length && !ctxOf(r).value) : [];
   const texts = [...new Set([...needLine.map(r => CARDS[r.dataset.index].plain),
-                             ...needCtx.flatMap(r => CARDS[r.dataset.index].context_plain)])];
+                             ...needCtx.flatMap(r => CARDS[r.dataset.index].context_plain)])].filter(t => !requested.has(t));
+  if (!texts.length) return;
+  translating = true;
   const found = {};
-  for (let i = 0; i < texts.length; i += 20) {
-    status.textContent = `Translating… ${i}/${texts.length}`;
-    const res = await fetch("{{ url_for('build.translate_texts') }}", {method: "POST",
-      headers: {"Content-Type": "application/json"}, body: JSON.stringify({texts: texts.slice(i, i + 20)})});
-    const data = await res.json();
-    Object.assign(found, data.translations);
-    fill(found, needLine, needCtx, englishOf, ctxOf);
-    if (data.error) { status.textContent = data.error + " You can type the missing translations."; return; }
+  try {
+    for (let i = 0; i < texts.length; i += 20) {
+      status.textContent = `Translating… ${i}/${texts.length}`;
+      const batch = texts.slice(i, i + 20);
+      batch.forEach(t => requested.add(t));
+      const res = await fetch("{{ url_for('build.translate_texts') }}", {method: "POST",
+        headers: {"Content-Type": "application/json"}, body: JSON.stringify({texts: batch})});
+      const data = await res.json();
+      Object.assign(found, data.translations);
+      fill(found, needLine, needCtx, englishOf, ctxOf);
+      if (data.error) {
+        quotaHit = /quota/i.test(data.error);
+        if (!quotaHit) batch.forEach(t => requested.delete(t));
+        status.textContent = data.error + " You can type the missing translations.";
+        return;
+      }
+    }
+    status.textContent = `Translated ${texts.length} texts with MyMemory.`;
+  } finally {
+    translating = false;
+    if (again) { again = false; translateMissing(); }
   }
-  status.textContent = texts.length ? `Translated ${texts.length} texts with MyMemory.` : "";
 }
+
+let translateTimer;
+const translateSoon = () => { clearTimeout(translateTimer); translateTimer = setTimeout(translateMissing, 800); };
 
 function fill(found, needLine, needCtx, englishOf, ctxOf) {
   needLine.forEach(r => { const t = found[CARDS[r.dataset.index].plain]; if (t) setAuto(englishOf(r), t); });
