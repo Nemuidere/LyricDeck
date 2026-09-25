@@ -4,7 +4,7 @@ from pathlib import Path
 
 from flask import Flask
 
-from . import build, db, dictionary, songs
+from . import build, db, dictionary, settings, songs
 
 
 def create_app(test_config: dict | None = None) -> Flask:
@@ -20,5 +20,6 @@ def create_app(test_config: dict | None = None) -> Flask:
     db.init_app(app)
     app.register_blueprint(songs.bp)
     app.register_blueprint(build.bp)
+    app.register_blueprint(settings.bp)
     app.cli.add_command(dictionary.init_data_command)
     return app

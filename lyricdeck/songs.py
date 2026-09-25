@@ -1,7 +1,10 @@
-"""Song library: list, add (paste), edit, delete."""
+"""Song library: list, add (paste or find online), edit, delete."""
+
+from urllib.error import URLError
 
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
 
+from . import lyrics
 from .db import get_db
 
 bp = Blueprint("songs", __name__)
@@ -38,6 +41,33 @@ def new():
         db.commit()
         return redirect(url_for("songs.index"))
     return render_template("song_form.html", song=request.form)
+
+
+@bp.get("/songs/find")
+def find():
+    query = request.args.get("q", "").strip()
+    results, error = [], None
+    if query:
+        try:
+            results = lyrics.search(query)
+        except (URLError, TimeoutError, ValueError) as e:
+            error = f"Could not reach LRCLIB ({e}). Check your connection, or paste the lyrics instead."
+    return render_template("song_find.html", query=query, results=results, error=error)
+
+
+@bp.post("/songs/import")
+def import_song():
+    try:
+        song = lyrics.fetch(request.form.get("lrclib_id", type=int))
+    except (URLError, TimeoutError, ValueError, KeyError, TypeError) as e:
+        flash(f"Could not fetch the lyrics from LRCLIB ({e}).")
+        return redirect(url_for("songs.find", q=request.form.get("q", "")))
+    db = get_db()
+    cur = db.execute("INSERT INTO songs (artist, title, lyrics, source, lrclib_id, synced_lyrics) "
+                     "VALUES (:artist, :title, :lyrics, 'lrclib', :lrclib_id, :synced_lyrics)", song)
+    db.commit()
+    flash("Imported from LRCLIB. Titles there are crowd-sourced, so check the artist and title below.")
+    return redirect(url_for("songs.edit", song_id=cur.lastrowid))
 
 
 @bp.route("/songs/<int:song_id>/edit", methods=["GET", "POST"])

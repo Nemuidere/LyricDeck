@@ -73,3 +73,51 @@ def export(cards: list[dict], deck_name: str) -> bytes:
         path = Path(tmp) / "deck.apkg"
         genanki.Package(deck).write_to_file(path)
         return path.read_bytes()
+
+
+ANKICONNECT_URL = "http://127.0.0.1:8765"
+
+
+class AnkiConnectError(Exception):
+    pass
+
+
+def _anki(action: str, **params):
+    import json
+    import urllib.request
+    req = urllib.request.Request(ANKICONNECT_URL, json.dumps({"action": action, "version": 6, "params": params}).encode(),
+                                 {"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            reply = json.load(r)
+    except OSError as e:
+        raise AnkiConnectError("Could not reach Anki. Open Anki with the AnkiConnect add-on (code 2055492159) installed.") from e
+    if reply.get("error"):
+        raise AnkiConnectError(f"AnkiConnect: {reply['error']}")
+    return reply["result"]
+
+
+def _search_value(text: str) -> str:
+    """Escape a field value for an Anki search."""
+    return "".join("\\" + c if c in '\\"*_:()' else c for c in text)
+
+
+def send_to_anki(cards: list[dict], deck_name: str) -> dict[str, int]:
+    """Add or update notes in the running Anki. Notes are matched on the Russian field of LyricDeck's note type."""
+    _anki("createDeck", deck=deck_name)
+    if MODEL.name not in _anki("modelNames"):
+        _anki("createModel", modelName=MODEL.name, inOrderFields=FIELDS, css=CSS, isCloze=False,
+              cardTemplates=[{"Name": "Russian → English", "Front": FRONT, "Back": BACK}])
+    names = ("russian", "sung", "grammar", "english", "extra", "context", "context_english", "source", "kind")
+    added = updated = 0
+    for card in cards:
+        fields = dict(zip(FIELDS, (card.get(n, "") for n in names), strict=True))
+        found = _anki("findNotes", query=f'"note:{MODEL.name}" "Russian:{_search_value(fields["Russian"])}"')
+        if found:
+            _anki("updateNoteFields", note={"id": found[0], "fields": fields})
+            updated += 1
+        else:
+            _anki("addNote", note={"deckName": deck_name, "modelName": MODEL.name, "fields": fields,
+                                   "tags": [card["kind"], *card.get("tags", [])], "options": {"allowDuplicate": False}})
+            added += 1
+    return {"added": added, "updated": updated}

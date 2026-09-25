@@ -18,6 +18,11 @@ CREATE TABLE IF NOT EXISTS songs (
 );
 CREATE TABLE IF NOT EXISTS known (key TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS translations (provider TEXT, text TEXT, english TEXT, PRIMARY KEY (provider, text));
+CREATE TABLE IF NOT EXISTS claude_usage (day TEXT, backend TEXT, model TEXT, input_tokens INTEGER,
+                                         output_tokens INTEGER, cost_usd REAL);
+CREATE TABLE IF NOT EXISTS usage (provider TEXT, day TEXT, chars INTEGER DEFAULT 0, requests INTEGER DEFAULT 0,
+                                  PRIMARY KEY (provider, day));
 """
 
 

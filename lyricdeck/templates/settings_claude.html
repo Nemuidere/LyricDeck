@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block content %}
+<p class="muted small"><a href="{{ url_for('settings.page') }}">← Settings</a></p>
+<h1>Claude (optional)</h1>
+<p class="muted">Claude can translate words in the sense they have in the song, and phrases and lines better than the free translator.
+Nothing is sent to Claude until you press "Translate with Claude" on the review page.</p>
+<form method="post" class="stack">
+  <section class="card stack">
+    <h2>Connection</h2>
+    {% for value, label in backends.items() %}
+    <label class="check"><input type="radio" name="claude_backend" value="{{ value }}" {{ "checked" if s.claude_backend == value }}> {{ label }}</label>
+    {% endfor %}
+  </section>
+
+  <section class="card stack" data-backend="api">
+    <h2>Anthropic API key</h2>
+    <p class="muted small">Create a key at <a href="https://platform.claude.com/settings/keys" target="_blank" rel="noopener">platform.claude.com → API keys</a>.
+      API use is billed per token, separately from any Claude subscription. The key is stored only in this computer's LyricDeck database{% if has_env_key %}; the <code>ANTHROPIC_API_KEY</code> environment variable is set and is used when no key is saved here{% endif %}.
+      The Python SDK is an optional extra: <code>uv sync --extra claude</code>.</p>
+    <label>API key <input type="password" name="claude_api_key" autocomplete="off" placeholder="{{ 'saved — leave empty to keep it' if s.claude_api_key else 'sk-ant-…' }}"></label>
+    {% if s.claude_api_key %}<label class="check"><input type="checkbox" name="forget_key"> Forget the saved key</label>{% endif %}
+    <label>Model
+      <select name="claude_model_api">
+        {% for m in api_models %}<option value="{{ m }}" {{ "selected" if m == s.claude_model_api }}>{{ m }}{% if m in prices %} (${{ prices[m][0] }} / ${{ prices[m][1] }} per million tokens in / out){% endif %}</option>{% endfor %}
+      </select>
+    </label>
+    <p class="muted small">A typical song costs roughly 3–15 cents depending on the model. "Test connection" refreshes this list from your account (free).</p>
+  </section>
+
+  <section class="card stack" data-backend="code">
+    <h2>Local Claude Code</h2>
+    <p class="muted small">For your own personal use with a Claude Pro or Max plan. LyricDeck runs the <code>claude</code> command you installed and
+      logged into yourself (<code>claude -p</code>); Anthropic covers this with the plan's monthly Agent SDK credit.
+      LyricDeck never reads Claude Code's login or credentials. Setup: install Claude Code from
+      <a href="https://code.claude.com" target="_blank" rel="noopener">code.claude.com</a>, run <code>claude</code> once and log in, then press "Test connection".</p>
+    <label>Model
+      <select name="claude_model_code">
+        {% for m in code_models %}<option value="{{ m }}" {{ "selected" if m == s.claude_model_code }}>{{ m }}</option>{% endfor %}
+      </select>
+    </label>
+  </section>
+
+  <section class="card stack">
+    <h2>Use Claude for</h2>
+    <label class="check"><input type="checkbox" name="claude_words" {{ "checked" if s.claude_words == "1" }}> Words: the meaning used in the song, instead of the dictionary's list of meanings</label>
+    <label class="check"><input type="checkbox" name="claude_lines" {{ "checked" if s.claude_lines == "1" }}> Phrases and lines (instead of MyMemory)</label>
+  </section>
+
+  <div class="row end">
+    <span class="muted small" id="test-result"></span>
+    <button type="button" class="ghost" id="test">Test connection</button>
+    <button>Save</button>
+  </div>
+</form>
+
+<section class="card stack usage">
+  <h2>Usage this month</h2>
+  <p>{{ usage.requests }} request{{ "s" if usage.requests != 1 }} · {{ "{:,}".format(usage.input) }} tokens in · {{ "{:,}".format(usage.output) }} tokens out
+    · about <strong>${{ ("%.2f" if usage.cost >= 1 else "%.3f") % usage.cost }}</strong>{% if s.claude_backend == "code" %} of Agent SDK credit{% endif %}.</p>
+  <p class="muted small">Estimated from each response. Your exact bill or remaining credit is on your Claude account page.
+    Translations are cached per model, so nothing is paid for twice.</p>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+const radios = [...document.querySelectorAll("input[name=claude_backend]")];
+const show = () => {
+  const b = radios.find(r => r.checked).value;
+  document.querySelectorAll("[data-backend]").forEach(s => s.hidden = s.dataset.backend !== b);
+};
+radios.forEach(r => r.addEventListener("change", show)); show();
+document.querySelector("#test").addEventListener("click", async () => {
+  const out = document.querySelector("#test-result");
+  out.textContent = "Testing…";
+  const body = new FormData(); body.append("backend", radios.find(r => r.checked).value);
+  const data = await (await fetch("{{ url_for('settings.claude_test') }}", {method: "POST", body})).json();
+  out.textContent = data.message;
+});
+</script>
+{% endblock %}

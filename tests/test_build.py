@@ -101,3 +101,35 @@ def test_stable_guid_across_exports(client):
         with zipfile.ZipFile(io.BytesIO(client.post("/export", data=data).data)) as z, open_collection(z) as conn:
             return conn.execute("SELECT guid FROM notes").fetchone()[0]
     assert guid("love") == guid("love, affection")
+
+
+def test_send_to_anki(client, monkeypatch):
+    from lyricdeck import deck
+    calls, notes = [], {}
+
+    def fake_anki(action, **params):
+        calls.append(action)
+        if action == "modelNames":
+            return []
+        if action == "findNotes":
+            return [1] if "любо" in params["query"] and notes else []
+        if action == "addNote":
+            notes[len(notes) + 1] = params["note"]
+        return None
+
+    monkeypatch.setattr(deck, "_anki", fake_anki)
+    data = {"sel": ["0"], "deck_name": "D", "target": "anki", "key-0": "ru|word|любовь|NOUN", "kind-0": "word",
+            "russian-0": "любо́вь", "english-0": "love"}
+    assert "1 new and 0 updated" in client.post("/export", data=data).get_json()["message"]
+    assert "0 new and 1 updated" in client.post("/export", data=data).get_json()["message"]
+    assert calls.count("createModel") == 2 and "updateNoteFields" in calls
+
+
+def test_send_to_anki_offline(client):
+    data = {"sel": ["0"], "deck_name": "D", "target": "anki", "key-0": "k", "kind-0": "word", "russian-0": "x"}
+    assert "Could not reach Anki" in client.post("/export", data=data).get_json()["message"]
+
+
+def test_anki_search_escaping():
+    from lyricdeck.deck import _search_value
+    assert _search_value('a "b" c:d *') == 'a \\"b\\" c\\:d \\*'

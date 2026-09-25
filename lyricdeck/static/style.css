@@ -122,3 +122,14 @@ td.meta button { display: inline-block; font-size: 0.8rem; padding: 0.2rem 0.5re
   table.cards td.meta { display: none; }
   td.front { width: auto; }
 }
+.ctx-en { margin-top: 0.25rem; font-size: 0.85rem; color: var(--muted); font-style: italic; }
+.meter { height: 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.meter div { height: 100%; background: var(--accent); }
+.usage { margin-top: 1.5rem; }
+.usage p { margin: 0; }
+.search { display: flex; gap: 0.5rem; margin: 0; }
+.search input { margin: 0; min-width: 18rem; }
+.results .preview { font-size: 0.9rem; color: var(--muted); margin-top: 0.3rem; }
+@media (max-width: 700px) { .row:has(.search) { flex-direction: column; align-items: stretch; } .search input { min-width: 0; } }
+.warn { color: var(--danger); }
+.stack > .check { display: flex; }

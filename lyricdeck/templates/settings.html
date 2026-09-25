@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Settings</h1>
+<form method="post" class="stack">
+  <section class="card stack">
+    <h2>Deck</h2>
+    <label>Deck name in Anki <input name="deck_name" value="{{ s.deck_name }}"></label>
+  </section>
+
+  <section class="card stack">
+    <h2>Translation</h2>
+    <p class="muted small">Single words come from the offline dictionary. Phrases and lines need a translator.</p>
+    <label>Phrases and lines
+      <select name="line_translator">
+        {% for value, label in translators.items() %}<option value="{{ value }}" {{ "selected" if s.line_translator == value }}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Email for MyMemory (optional)
+      <input type="email" name="mymemory_email" value="{{ s.mymemory_email }}" placeholder="you@example.com">
+      <span class="muted small">MyMemory is free: 5,000 characters a day without an email, 50,000 with one. It is only sent to MyMemory with each request.</span>
+    </label>
+    {% if cc.lines %}<p class="flash small">Phrases and lines are translated by Claude ({{ cc.model }}). Change it in <a href="{{ url_for('settings.claude_page') }}">Settings → Claude</a>.</p>{% endif %}
+    <label class="check"><input type="checkbox" name="context_english" {{ "checked" if s.context_english == "1" }}> Show the English of the song lines on the back of word cards</label>
+  </section>
+
+  <section class="card stack">
+    <h2>Defaults for new decks</h2>
+    <div class="options">
+      {% set chosen = s.units.split(",") %}
+      {% for value, label in units.items() %}
+      <label class="check"><input type="checkbox" name="unit" value="{{ value }}" {{ "checked" if value in chosen }}> {{ label }}</label>
+      {% endfor %}
+    </div>
+    <div class="options">
+      <label class="inline">Minimum count <input type="number" name="min_count" value="{{ s.min_count }}" min="1" max="50"></label>
+      <label class="check"><input type="checkbox" name="count_repeats" {{ "checked" if s.count_repeats == "1" }}> Count every chorus repeat</label>
+      <label class="check"><input type="checkbox" name="grammar" {{ "checked" if s.grammar == "1" }}> Grammar hints</label>
+    </div>
+  </section>
+  <section class="card row">
+    <div><h2>Claude (optional)</h2><p class="muted small">Better, context-aware translations with an API key or your own Claude Code login.
+      {% if cc.backend != "off" %}Active: {{ cc.model }}.{% else %}Off.{% endif %}</p></div>
+    <a class="button ghost" href="{{ url_for('settings.claude_page') }}">Set up →</a>
+  </section>
+  <div class="row end"><button>Save settings</button></div>
+</form>
+
+<section class="card stack usage" id="usage">
+  <h2>Usage today</h2>
+  <div class="meter"><div style="width: {{ (100 * mm.used / mm.limit) | round | int if mm.limit else 0 }}%"></div></div>
+  <p><strong>MyMemory:</strong> {{ "{:,}".format(mm.used) }} of {{ "{:,}".format(mm.limit) }} characters used
+    ({{ mm.requests }} request{{ "s" if mm.requests != 1 }}).
+    {% if mm.songs_left is not none %}About <strong>{{ mm.songs_left }}</strong> more song{{ "s" if mm.songs_left != 1 }} of your usual length today.{% endif %}</p>
+  <p class="muted small">
+    {% if mm.blocked_until %}MyMemory reported the quota as used up. It is available again at {{ mm.blocked_until.strftime("%H:%M") }} UTC.
+    {% else %}The free quota refreshes daily. Once it runs out, MyMemory reports the exact time it comes back, and it is shown here.
+    Translations are cached, so a line is never translated twice.{% endif %}
+  </p>
+</section>
+{% endblock %}

@@ -5,6 +5,7 @@
     <h1>Review cards</h1>
     <div class="row">
       <label class="inline">Deck <input name="deck_name" value="{{ deck_name }}"></label>
+      <button type="button" class="ghost" id="send-anki" title="Needs Anki running with the AnkiConnect add-on">Send to Anki</button>
       <button>Export .apkg</button>
     </div>
   </div>
@@ -12,7 +13,7 @@
 
   <section class="card controls">
     {% if cards | selectattr("kind", "equalto", "word") | list %}
-    <label class="slider">Understand <strong id="target-label">80%</strong> of the words
+    <label class="slider">Understand <strong id="target-label">80%</strong> of the listed words (known words count as understood)
       <input type="range" id="coverage" min="0" max="100" value="80" step="5">
     </label>
     {% endif %}
@@ -30,12 +31,16 @@
       </label>
     </div>
     <p class="stats" id="stats"></p>
+    <p class="stats" id="translate-status"></p>
+    {% if claude.words or claude.lines %}
+    <div class="row end"><button type="button" class="ghost" id="claude-btn">Translate ticked cards with Claude ({{ claude.model }})</button></div>
+    {% endif %}
   </section>
 
   {% if not cards %}
   <p class="empty">Nothing matched. Try a lower minimum count or more card types.</p>
   {% endif %}
-  <table class="cards" data-total="{{ total_words }}">
+  <table class="cards">
     <tbody>
     {% for c in cards %}
     <tr class="card-row{{ ' unresolved' if not c.resolved }}" data-kind="{{ c.kind }}" data-count="{{ c.count }}"
@@ -48,14 +53,15 @@
         {% if c.extra %}<div class="muted small">{{ c.extra }}</div>{% endif %}
         {% if c.alternatives %}
         <select class="alt" title="Other possible dictionary form">
-          <option value="-1">{{ c.russian | striptags }}</option>
-          {% for a in c.alternatives %}<option value="{{ loop.index0 }}">{{ a.russian }}</option>{% endfor %}
+          <option value="-1">✓ {{ c.russian | striptags }}</option>
+          {% for a in c.alternatives %}<option value="{{ loop.index0 }}">or: {{ a.russian }}</option>{% endfor %}
         </select>
         {% endif %}
       </td>
       <td class="back">
         <input name="english-{{ loop.index0 }}" value="{{ c.english }}" placeholder="{{ 'no dictionary entry — type a translation' if not c.resolved else 'translation' }}">
         {% if c.context %}<div class="ctx">{{ c.context | safe }}</div>{% endif %}
+        {% if with_context and c.context_plain %}<div class="ctx-en">{{ c.context_english | replace("\n", " / ") }}</div>{% endif %}
       </td>
       <td class="meta">
         <span class="badge">{{ c.kind }}</span>
@@ -73,29 +79,30 @@
 <script>
 const $ = s => document.querySelector(s);
 const table = $("table.cards");
-const total = +table.dataset.total;
 const rows = [...table.querySelectorAll("tr.card-row")];
 const KIND = {word: 0, phrase: 1, line: 2};
 const CARDS = {{ cards | tojson }};
 
 rows.forEach(r => {
   const c = CARDS[r.dataset.index];
-  for (const f of ["key", "kind", "russian", "sung", "grammar", "extra", "context", "source"]) {
+  for (const f of ["key", "kind", "russian", "sung", "grammar", "extra", "context", "context_english", "source"]) {
     const input = Object.assign(document.createElement("input"), {type: "hidden", name: `${f}-${r.dataset.index}`, value: c[f]});
     r.appendChild(input);
   }
   r.appendChild(Object.assign(document.createElement("input"), {type: "hidden", name: `tags-${r.dataset.index}`, value: c.tags.join(" ")}));
 });
 
-const words = () => rows.filter(r => r.dataset.kind === "word");
+// Words hidden by the small/common filters are left out of the coverage maths.
+const filtered = r => ($("#skip-small").checked && r.dataset.small === "1")
+  || (+$("#common").value && +r.dataset.rank && +r.dataset.rank <= +$("#common").value);
+const words = () => rows.filter(r => r.dataset.kind === "word" && !filtered(r));
 const sum = list => list.reduce((a, r) => a + +r.dataset.count, 0);
 const ticked = r => r.querySelector(".sel").checked;
 
 function refresh() {
-  const skipSmall = $("#skip-small").checked, common = +$("#common").value, showKnown = $("#show-known").checked;
+  const showKnown = $("#show-known").checked;
   rows.forEach(r => {
-    const d = r.dataset;
-    const hide = (skipSmall && d.small === "1") || (common && +d.rank && +d.rank <= common) || (!showKnown && d.known === "1");
+    const hide = filtered(r) || (!showKnown && r.dataset.known === "1");
     r.hidden = hide;
     if (hide) r.querySelector(".sel").checked = false;
   });
@@ -106,7 +113,7 @@ function applyCoverage() {
   const slider = $("#coverage");
   if (!slider) return stats();
   $("#target-label").textContent = slider.value + "%";
-  const target = +slider.value / 100;
+  const target = +slider.value / 100, total = sum(words());
   let covered = sum(words().filter(r => r.dataset.known === "1"));
   words().filter(r => !r.hidden && r.dataset.known !== "1")
     .sort((a, b) => b.dataset.count - a.dataset.count)
@@ -121,7 +128,7 @@ function applyCoverage() {
 function stats() {
   const chosen = rows.filter(ticked);
   const w = chosen.filter(r => r.dataset.kind === "word");
-  const known = sum(words().filter(r => r.dataset.known === "1"));
+  const known = sum(words().filter(r => r.dataset.known === "1")), total = sum(words());
   const pct = total ? Math.round(100 * (sum(w) + known) / total) : 0;
   const minCount = w.length ? Math.min(...w.map(r => +r.dataset.count)) : 0;
   const byKind = k => chosen.filter(r => r.dataset.kind === k).length;
@@ -166,7 +173,100 @@ $("#review").addEventListener("submit", () => {
   setTimeout(() => rows.forEach(r => r.querySelectorAll("input").forEach(el => el.disabled = false)), 0);
 });
 
+const TRANSLATOR = {{ translator | tojson }}, WITH_CONTEXT = {{ with_context | tojson }};
+const CLAUDE = {{ claude | tojson }}, SONG_IDS = {{ songs | map(attribute="id") | list | tojson }};
+// Remember machine-filled values so later translators never overwrite what the user typed.
+rows.forEach(r => { const e = r.querySelector("input[name^=english]"); e.dataset.auto = e.value; });
+const setAuto = (input, value) => { if (input.value === input.dataset.auto) { input.value = value; input.dataset.auto = value; } };
+
+async function translateMissing() {
+  if (TRANSLATOR !== "mymemory") return;
+  const status = $("#translate-status");
+  const englishOf = r => r.querySelector(`[name="english-${r.dataset.index}"]`);
+  const ctxOf = r => r.querySelector(`[name="context_english-${r.dataset.index}"]`);
+  const needLine = rows.filter(r => r.dataset.kind !== "word" && !englishOf(r).value);
+  const needCtx = WITH_CONTEXT ? rows.filter(r => CARDS[r.dataset.index].context_plain.length && !ctxOf(r).value) : [];
+  const texts = [...new Set([...needLine.map(r => CARDS[r.dataset.index].plain),
+                             ...needCtx.flatMap(r => CARDS[r.dataset.index].context_plain)])];
+  const found = {};
+  for (let i = 0; i < texts.length; i += 20) {
+    status.textContent = `Translating… ${i}/${texts.length}`;
+    const res = await fetch("{{ url_for('build.translate_texts') }}", {method: "POST",
+      headers: {"Content-Type": "application/json"}, body: JSON.stringify({texts: texts.slice(i, i + 20)})});
+    const data = await res.json();
+    Object.assign(found, data.translations);
+    fill(found, needLine, needCtx, englishOf, ctxOf);
+    if (data.error) { status.textContent = data.error + " You can type the missing translations."; return; }
+  }
+  status.textContent = texts.length ? `Translated ${texts.length} texts with MyMemory.` : "";
+}
+
+function fill(found, needLine, needCtx, englishOf, ctxOf) {
+  needLine.forEach(r => { const t = found[CARDS[r.dataset.index].plain]; if (t) setAuto(englishOf(r), t); });
+  needCtx.forEach(r => {
+    const lines = CARDS[r.dataset.index].context_plain;
+    if (lines.every(l => found[l])) {
+      ctxOf(r).value = lines.map(l => found[l]).join("\n");
+      r.querySelector(".ctx-en").textContent = lines.map(l => found[l]).join(" / ");
+    }
+  });
+}
+
+$("#claude-btn")?.addEventListener("click", async e => {
+  const status = $("#translate-status"), chosen = rows.filter(r => ticked(r) && !r.hidden);
+  const items = [], targets = {};
+  chosen.forEach(r => {
+    const c = CARDS[r.dataset.index], i = +r.dataset.index;
+    if (c.kind === "word" && CLAUDE.words)
+      items.push({id: i, kind: "word", text: r.querySelector(".front .ru").textContent.replace(/\u0301/g, ""),
+                  sung: c.sung.replace(/\u0301/g, ""), line: c.context_plain[0] || ""});
+    if (c.kind !== "word" && CLAUDE.lines)
+      items.push({id: i, kind: c.kind, text: c.plain, line: c.kind === "phrase" ? c.context_plain[0] || "" : ""});
+  });
+  const lineIds = {};
+  if (CLAUDE.lines && WITH_CONTEXT)
+    chosen.forEach(r => CARDS[r.dataset.index].context_plain.forEach(l => {
+      if (!(l in lineIds)) { lineIds[l] = 100000 + Object.keys(lineIds).length; items.push({id: lineIds[l], kind: "line", text: l}); }
+    }));
+  if (!items.length) { status.textContent = "Nothing ticked for Claude to translate."; return; }
+  e.target.disabled = true;
+  status.textContent = `Asking Claude (${CLAUDE.model}) to translate ${items.length} items… this can take a minute.`;
+  try {
+    const res = await fetch("{{ url_for('build.translate_claude') }}", {method: "POST",
+      headers: {"Content-Type": "application/json"}, body: JSON.stringify({songs: SONG_IDS, items})});
+    const data = await res.json(), t = data.translations;
+    chosen.forEach(r => {
+      if (t[r.dataset.index]) setAuto(r.querySelector("input[name^=english]"), t[r.dataset.index]);
+      const lines = CARDS[r.dataset.index].context_plain;
+      if (CLAUDE.lines && WITH_CONTEXT && lines.length && lines.every(l => t[lineIds[l]])) {
+        r.querySelector(`[name="context_english-${r.dataset.index}"]`).value = lines.map(l => t[lineIds[l]]).join("\n");
+        r.querySelector(".ctx-en").textContent = lines.map(l => t[lineIds[l]]).join(" / ");
+      }
+    });
+    status.textContent = data.error || `Claude translated ${Object.keys(t).length} items`
+      + (data.cost ? ` (about $${data.cost.toFixed(3)})` : data.cost === 0 ? " (all from cache)" : "") + ".";
+  } catch (err) {
+    status.textContent = "Claude request failed: " + err;
+  } finally { e.target.disabled = false; }
+});
+
+$("#send-anki").addEventListener("click", async e => {
+  const form = $("#review"), status = $("#translate-status");
+  rows.filter(r => !ticked(r)).forEach(r => r.querySelectorAll("input").forEach(el => el.disabled = true));
+  const body = new FormData(form);
+  rows.forEach(r => r.querySelectorAll("input").forEach(el => el.disabled = false));
+  body.append("target", "anki");
+  e.target.disabled = true;
+  status.textContent = "Sending to Anki…";
+  try {
+    status.textContent = (await (await fetch(form.action, {method: "POST", body})).json()).message;
+  } catch (err) {
+    status.textContent = "Sending failed: " + err;
+  } finally { e.target.disabled = false; }
+});
+
 refresh();
 applyCoverage();
+translateMissing();
 </script>
 {% endblock %}

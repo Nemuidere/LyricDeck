@@ -21,13 +21,13 @@
     <h2>Cards</h2>
     <div class="options">
       {% for value, label in units.items() %}
-      <label class="check"><input type="checkbox" name="unit" value="{{ value }}" {{ "checked" if value == "word" }}> {{ label }}</label>
+      <label class="check"><input type="checkbox" name="unit" value="{{ value }}" {{ "checked" if value in d.units }}> {{ label }}</label>
       {% endfor %}
     </div>
     <div class="options">
-      <label class="inline">Minimum count <input type="number" name="min_count" value="2" min="1" max="50"></label>
-      <label class="check"><input type="checkbox" name="count_repeats" checked> Count every chorus repeat</label>
-      <label class="check"><input type="checkbox" name="grammar" checked> Grammar hints (e.g. "genitive singular")</label>
+      <label class="inline">Minimum count <input type="number" name="min_count" value="{{ d.min_count }}" min="1" max="50"></label>
+      <label class="check"><input type="checkbox" name="count_repeats" {{ "checked" if d.count_repeats }}> Count every chorus repeat</label>
+      <label class="check"><input type="checkbox" name="grammar" {{ "checked" if d.grammar }}> Grammar hints (e.g. "genitive singular")</label>
     </div>
   </section>
   <div class="row end"><button>Find cards →</button></div>

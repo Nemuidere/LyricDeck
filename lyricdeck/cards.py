@@ -30,6 +30,9 @@ class Card:
     grammar: str = ""
     extra: str = ""
     context: str = ""
+    context_english: str = ""
+    plain: str = ""                                          # text to translate (phrases, lines)
+    context_plain: list[str] = field(default_factory=list)   # the context lines as plain text
     source: str = ""
     tags: list[str] = field(default_factory=list)
     count: int = 0
@@ -94,9 +97,9 @@ class Builder:
         spans = "".join(out)
         return spans.replace("</b> <b>", " ").replace("</b>-<b>", "-")
 
-    def context(self, occurrences: list[Occurrence]) -> str:
+    def context(self, occurrences: list[Occurrence]) -> dict:
         """A few distinct lines the item appears in: as many as stay short, always at least one."""
-        chosen, seen, chars = [], set(), 0
+        chosen, plain, seen, chars = [], [], set(), 0
         for o in occurrences:
             line = self.analyzed[o.song][o.line]
             if fold(line.text) in seen:
@@ -106,7 +109,8 @@ class Builder:
             seen.add(fold(line.text))
             chars += len(line.text)
             chosen.append(self.render(line, range(o.token, o.token + o.size) if o.token >= 0 else range(0)))
-        return "<br>".join(chosen)
+            plain.append(line.text)
+        return {"context": "<br>".join(chosen), "context_plain": plain}
 
     def _common(self, key: str, occurrences: list[Occurrence]) -> dict:
         songs = list(dict.fromkeys(o.song for o in occurrences))
@@ -146,7 +150,7 @@ class Builder:
                 key=entry["key"], kind="word", russian=entry["russian"], english=entry["english"],
                 sung=self.stressed(sung_text, lemma) if differs else "",
                 grammar=describe(sung_token.tag) if differs and self.grammar else "",
-                extra=entry["extra"], context=self.context(item.occurrences), count=item.count,
+                extra=entry["extra"], **self.context(item.occurrences), count=item.count,
                 small=token.small, rank=self.d.rank(lemma), resolved=row is not None,
                 alternatives=[self._entry(a, "") for a in token.alternatives if self.d.lookup(a)][:4],
                 **self._common(entry["key"], item.occurrences),
@@ -162,8 +166,10 @@ class Builder:
             line = self.analyzed[first.song][first.line]
             card_key = "ru|phrase|" + " ".join(key)
             text = self.render(line, span=range(first.token, first.token + first.size))
-            cards.append(Card(key=card_key, kind="phrase", russian=text, count=item.count,
-                              context=self.context(item.occurrences), **self._common(card_key, item.occurrences)))
+            plain = line.text[line.tokens[first.token].start: line.tokens[first.token + first.size - 1].start
+                              + len(line.tokens[first.token + first.size - 1].text)]
+            cards.append(Card(key=card_key, kind="phrase", russian=text, count=item.count, plain=plain,
+                              **self.context(item.occurrences), **self._common(card_key, item.occurrences)))
         return cards
 
     def lines(self, min_count: int) -> list[Card]:
@@ -173,18 +179,15 @@ class Builder:
                 continue
             first = item.occurrences[0]
             card_key = f"ru|line|{text}"
-            cards.append(Card(key=card_key, kind="line", russian=self.render(self.analyzed[first.song][first.line]),
+            line = self.analyzed[first.song][first.line]
+            cards.append(Card(key=card_key, kind="line", russian=self.render(line), plain=line.text,
                               count=item.count, **self._common(card_key, item.occurrences)))
         return cards
 
-    def total_words(self) -> int:
-        return sum(item.count for item in count_words(self.analyzed).values())
-
-
 def build(songs: list, d: Dictionary, known: set[str], units: set[str], min_count: int = 2,
-          count_repeats: bool = True, grammar: bool = True) -> tuple[list[dict], int]:
-    """Candidate cards (as dicts, song order then frequency) and the total number of words in the songs."""
+          count_repeats: bool = True, grammar: bool = True) -> list[dict]:
+    """Candidate cards as dicts, ordered by kind, song, then frequency."""
     b = Builder(songs, d, known, count_repeats, grammar)
     cards = [c for unit in ("word", "phrase", "line") if unit in units for c in getattr(b, unit + "s")(min_count)]
     cards.sort(key=lambda c: (KIND_ORDER[c.kind], c.song, -c.count))
-    return [asdict(c) for c in cards], b.total_words()
+    return [asdict(c) for c in cards]

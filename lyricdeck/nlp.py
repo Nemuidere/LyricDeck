@@ -152,9 +152,9 @@ def analyze(lines: list[str], freq: Callable[[str], float] | None = None) -> lis
     pieces = [tokenize(line) for line in lines]
     docs = _spacy().pipe(Doc(_spacy().vocab, words=[w.lower() for w, _ in ps]) for ps in pieces)
     result = []
-    for line, ps, doc in zip(lines, pieces, docs):
+    for line, ps, doc in zip(lines, pieces, docs, strict=True):
         tokens = []
-        for (w, start), t in zip(ps, doc):
+        for (w, start), t in zip(ps, doc, strict=True):
             if not w[0].isalpha() or not re.search(f"[{CYRILLIC}]", w):
                 tokens.append(Token(w, start))
                 continue

@@ -2,7 +2,13 @@
 {% block content %}
 <div class="row">
   <h1>Songs</h1>
-  <a class="button" href="{{ url_for('songs.new') }}">+ Add song</a>
+  <div class="row">
+    <form method="get" action="{{ url_for('songs.find') }}" class="search">
+      <input name="q" placeholder="Find lyrics online: artist and title">
+      <button class="ghost">Search</button>
+    </form>
+    <a class="button" href="{{ url_for('songs.new') }}">+ Paste lyrics</a>
+  </div>
 </div>
 {% if songs %}
 <ul class="list">
@@ -11,6 +17,7 @@
     <div>
       <strong>{{ song.title }}</strong>
       {% if song.artist %}<span class="muted">· {{ song.artist }}</span>{% endif %}
+      {% if song.source == "lrclib" %}<span class="badge">LRCLIB</span>{% endif %}
       <div class="muted small">{% set n = song.lyrics.splitlines() | length %}{{ n }} line{{ 's' if n != 1 }} · added {{ song.added_at[:10] }}</div>
     </div>
     <div class="actions">
@@ -24,6 +31,6 @@
   {% endfor %}
 </ul>
 {% else %}
-<p class="empty">No songs yet. Add one to get started.</p>
+<p class="empty">No songs yet. Search for one above, or paste lyrics.</p>
 {% endif %}
 {% endblock %}
