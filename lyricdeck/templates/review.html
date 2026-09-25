@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% block content %}
+<form method="post" action="{{ url_for('build.export') }}" id="review">
+  <div class="row">
+    <h1>Review cards</h1>
+    <div class="row">
+      <label class="inline">Deck <input name="deck_name" value="{{ deck_name }}"></label>
+      <button>Export .apkg</button>
+    </div>
+  </div>
+  <p class="muted small">{{ songs | map(attribute="title") | join(" · ") }}</p>
+
+  <section class="card controls">
+    {% if cards | selectattr("kind", "equalto", "word") | list %}
+    <label class="slider">Understand <strong id="target-label">80%</strong> of the words
+      <input type="range" id="coverage" min="0" max="100" value="80" step="5">
+    </label>
+    {% endif %}
+    <div class="options">
+      <label class="check"><input type="checkbox" id="skip-small" checked> Skip small words</label>
+      <label class="inline">Hide common Russian words
+        <select id="common">
+          <option value="0">off</option><option value="100">top 100</option>
+          <option value="300">top 300</option><option value="1000">top 1000</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" id="show-known"> Show known words</label>
+      <label class="inline">Order
+        <select id="order"><option value="song">song by song</option><option value="count">by frequency</option></select>
+      </label>
+    </div>
+    <p class="stats" id="stats"></p>
+  </section>
+
+  {% if not cards %}
+  <p class="empty">Nothing matched. Try a lower minimum count or more card types.</p>
+  {% endif %}
+  <table class="cards" data-total="{{ total_words }}">
+    <tbody>
+    {% for c in cards %}
+    <tr class="card-row{{ ' unresolved' if not c.resolved }}" data-kind="{{ c.kind }}" data-count="{{ c.count }}"
+        data-song="{{ c.song }}" data-small="{{ c.small | int }}" data-rank="{{ c.rank }}" data-known="{{ c.known | int }}"
+        data-resolved="{{ c.resolved | int }}" data-index="{{ loop.index0 }}" data-alts='{{ c.alternatives | tojson }}'>
+      <td class="tick"><input type="checkbox" class="sel" name="sel" value="{{ loop.index0 }}" {{ "checked" if c.kind != "word" }}></td>
+      <td class="front">
+        <div class="ru">{{ c.russian | safe }}</div>
+        {% if c.sung %}<div class="sung">{{ c.sung }}{% if c.grammar %} <span class="muted">· {{ c.grammar }}</span>{% endif %}</div>{% endif %}
+        {% if c.extra %}<div class="muted small">{{ c.extra }}</div>{% endif %}
+        {% if c.alternatives %}
+        <select class="alt" title="Other possible dictionary form">
+          <option value="-1">{{ c.russian | striptags }}</option>
+          {% for a in c.alternatives %}<option value="{{ loop.index0 }}">{{ a.russian }}</option>{% endfor %}
+        </select>
+        {% endif %}
+      </td>
+      <td class="back">
+        <input name="english-{{ loop.index0 }}" value="{{ c.english }}" placeholder="{{ 'no dictionary entry — type a translation' if not c.resolved else 'translation' }}">
+        {% if c.context %}<div class="ctx">{{ c.context | safe }}</div>{% endif %}
+      </td>
+      <td class="meta">
+        <span class="badge">{{ c.kind }}</span>
+        <span title="times in the selected songs">×{{ c.count }}</span>
+        {% if c.rank %}<span class="muted small" title="rank in the Russian frequency list">#{{ c.rank }}</span>{% endif %}
+        <button type="button" class="ghost known-btn" title="Mark as known: hidden from now on">{{ "unknown" if c.known else "known ✓" }}</button>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</form>
+{% endblock %}
+{% block scripts %}
+<script>
+const $ = s => document.querySelector(s);
+const table = $("table.cards");
+const total = +table.dataset.total;
+const rows = [...table.querySelectorAll("tr.card-row")];
+const KIND = {word: 0, phrase: 1, line: 2};
+const CARDS = {{ cards | tojson }};
+
+rows.forEach(r => {
+  const c = CARDS[r.dataset.index];
+  for (const f of ["key", "kind", "russian", "sung", "grammar", "extra", "context", "source"]) {
+    const input = Object.assign(document.createElement("input"), {type: "hidden", name: `${f}-${r.dataset.index}`, value: c[f]});
+    r.appendChild(input);
+  }
+  r.appendChild(Object.assign(document.createElement("input"), {type: "hidden", name: `tags-${r.dataset.index}`, value: c.tags.join(" ")}));
+});
+
+const words = () => rows.filter(r => r.dataset.kind === "word");
+const sum = list => list.reduce((a, r) => a + +r.dataset.count, 0);
+const ticked = r => r.querySelector(".sel").checked;
+
+function refresh() {
+  const skipSmall = $("#skip-small").checked, common = +$("#common").value, showKnown = $("#show-known").checked;
+  rows.forEach(r => {
+    const d = r.dataset;
+    const hide = (skipSmall && d.small === "1") || (common && +d.rank && +d.rank <= common) || (!showKnown && d.known === "1");
+    r.hidden = hide;
+    if (hide) r.querySelector(".sel").checked = false;
+  });
+  stats();
+}
+
+function applyCoverage() {
+  const slider = $("#coverage");
+  if (!slider) return stats();
+  $("#target-label").textContent = slider.value + "%";
+  const target = +slider.value / 100;
+  let covered = sum(words().filter(r => r.dataset.known === "1"));
+  words().filter(r => !r.hidden && r.dataset.known !== "1")
+    .sort((a, b) => b.dataset.count - a.dataset.count)
+    .forEach(r => {
+      const on = total > 0 && covered / total < target && r.dataset.resolved === "1";
+      r.querySelector(".sel").checked = on;
+      if (on) covered += +r.dataset.count;
+    });
+  stats();
+}
+
+function stats() {
+  const chosen = rows.filter(ticked);
+  const w = chosen.filter(r => r.dataset.kind === "word");
+  const known = sum(words().filter(r => r.dataset.known === "1"));
+  const pct = total ? Math.round(100 * (sum(w) + known) / total) : 0;
+  const minCount = w.length ? Math.min(...w.map(r => +r.dataset.count)) : 0;
+  const byKind = k => chosen.filter(r => r.dataset.kind === k).length;
+  $("#stats").textContent = `${chosen.length} cards selected (${byKind("word")} words, ${byKind("phrase")} phrases, ${byKind("line")} lines)`
+    + (words().length ? ` · with your known words you'll understand ${pct}% of the words` + (minCount ? `, each appears ≥ ${minCount}×` : "") : "");
+}
+
+function reorder() {
+  const bySong = $("#order").value === "song";
+  rows.sort((a, b) => KIND[a.dataset.kind] - KIND[b.dataset.kind]
+      || (bySong ? a.dataset.song - b.dataset.song : 0) || b.dataset.count - a.dataset.count)
+    .forEach(r => table.tBodies[0].appendChild(r));
+}
+
+table.addEventListener("click", async e => {
+  if (!e.target.classList.contains("known-btn")) return;
+  const r = e.target.closest("tr");
+  const known = r.dataset.known !== "1";
+  await fetch("{{ url_for('build.known') }}", {method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({key: r.querySelector(`[name^="key-"]`).value, known})});
+  r.dataset.known = known ? "1" : "0";
+  e.target.textContent = known ? "unknown" : "known ✓";
+  refresh();
+});
+
+table.addEventListener("change", e => {
+  if (e.target.classList.contains("alt")) {
+    const r = e.target.closest("tr"), c = CARDS[r.dataset.index], i = +e.target.value;
+    const pick = i < 0 ? {key: c.key, russian: c.russian, english: c.english, extra: c.extra} : JSON.parse(r.dataset.alts)[i];
+    for (const f of ["key", "russian", "extra"]) r.querySelector(`[name="${f}-${r.dataset.index}"]`).value = pick[f];
+    r.querySelector(`[name="english-${r.dataset.index}"]`).value = pick.english;
+    r.querySelector(".front .ru").textContent = pick.russian;
+  }
+  stats();
+});
+
+$("#coverage")?.addEventListener("input", applyCoverage);
+["#skip-small", "#common", "#show-known"].forEach(s => $(s).addEventListener("change", () => { refresh(); applyCoverage(); }));
+$("#order").addEventListener("change", reorder);
+$("#review").addEventListener("submit", () => {
+  rows.filter(r => !ticked(r)).forEach(r => r.querySelectorAll("input").forEach(el => el.disabled = true));
+  setTimeout(() => rows.forEach(r => r.querySelectorAll("input").forEach(el => el.disabled = false)), 0);
+});
+
+refresh();
+applyCoverage();
+</script>
+{% endblock %}

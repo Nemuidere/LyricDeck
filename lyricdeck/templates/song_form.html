@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ "Edit song" if song_id else "Add song" }}</h1>
+<form method="post" class="card stack">
+  <div class="grid2">
+    <label>Artist <input name="artist" value="{{ song.artist or '' }}"></label>
+    <label>Title <input name="title" value="{{ song.title or '' }}" required></label>
+  </div>
+  <label>Lyrics <textarea name="lyrics" rows="18" required>{{ song.lyrics or '' }}</textarea></label>
+  <div class="row end">
+    <a class="button ghost" href="{{ url_for('songs.index') }}">Cancel</a>
+    <button>Save</button>
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,27 @@
+[project]
+name = "lyricdeck"
+version = "0.1.0"
+description = "Turn song lyrics into Anki flashcards (Russian → English)."
+requires-python = ">=3.12"
+license = "GPL-3.0-or-later"
+dependencies = [
+    "flask>=3.1",
+    "genanki>=0.13.1",
+    "pymorphy3>=2.0.6",
+    "pymorphy3-dicts-ru>=2.4.417150.4580142",
+    "ru-core-news-sm",
+    "spacy>=3.8.16",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.uv.sources]
+ru-core-news-sm = { url = "https://github.com/explosion/spacy-models/releases/download/ru_core_news_sm-3.8.0/ru_core_news_sm-3.8.0-py3-none-any.whl" }

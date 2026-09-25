@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# LyricDeck local data (database, downloaded dictionaries, lyrics)
+data/

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row">
+  <h1>Songs</h1>
+  <a class="button" href="{{ url_for('songs.new') }}">+ Add song</a>
+</div>
+{% if songs %}
+<ul class="list">
+  {% for song in songs %}
+  <li>
+    <div>
+      <strong>{{ song.title }}</strong>
+      {% if song.artist %}<span class="muted">· {{ song.artist }}</span>{% endif %}
+      <div class="muted small">{% set n = song.lyrics.splitlines() | length %}{{ n }} line{{ 's' if n != 1 }} · added {{ song.added_at[:10] }}</div>
+    </div>
+    <div class="actions">
+      <a class="button ghost" href="{{ url_for('songs.edit', song_id=song.id) }}">Edit</a>
+      <form method="post" action="{{ url_for('songs.delete', song_id=song.id) }}"
+            onsubmit="return confirm('Delete this song?')">
+        <button class="ghost danger">Delete</button>
+      </form>
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="empty">No songs yet. Add one to get started.</p>
+{% endif %}
+{% endblock %}
