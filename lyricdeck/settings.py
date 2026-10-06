@@ -14,7 +14,9 @@ bp = Blueprint("settings", __name__)
 DEFAULTS = {
     "deck_name": "LyricDeck",
     "deck_name_ja": "LyricDeck Japanese",
-    "line_translator": "mymemory",    # mymemory | none
+    "translator_word": "dictionary",  # dictionary | claude
+    "translator_phrase": "mymemory",  # mymemory | claude | none
+    "translator_line": "mymemory",    # mymemory | claude | none; also the song lines on word cards
     "mymemory_email": "",
     "context_english": "1",           # show the English of the song lines on word cards
     "units": "word",
@@ -26,17 +28,53 @@ DEFAULTS = {
     "claude_api_key": "",
     "claude_model_api": claude.API_MODELS_DEFAULT,
     "claude_model_code": claude.CODE_MODEL_DEFAULT,
-    "claude_api_models": "[]",        # model IDs listed by the last successful key check
-    "claude_words": "1",
-    "claude_lines": "1",
+    "claude_api_models": "[]",        # models listed by the last successful key check
 }
 CLAUDE_BACKENDS = {"off": "Off", "api": "Anthropic API key (pay per use)",
                    "code": "My local Claude Code login (Pro/Max plan, personal use)"}
-TRANSLATORS = {"mymemory": "MyMemory (free, online)", "none": "None — I'll type translations"}
+KINDS = {"word": "Words", "phrase": "Phrases", "line": "Lines"}
+ONLINE = {"mymemory": "MyMemory (free, online)", "claude": "Claude", "none": "None — I'll type them"}
+TRANSLATORS = {"word": {"dictionary": "Offline dictionary", "claude": "Claude (the meaning used in the song)"},
+               "phrase": ONLINE, "line": ONLINE}
+OLD_KEYS = ("line_translator", "claude_words", "claude_lines")
 
 
 def setting(key: str) -> str:
     return get_setting(key, DEFAULTS[key])
+
+
+def translators() -> dict[str, str]:
+    """Who translates each card kind. Claude falls back to the free translators while it is off."""
+    claude_on = setting("claude_backend") != "off"
+    chosen = {}
+    for kind, choices in TRANSLATORS.items():
+        value = setting(f"translator_{kind}")
+        value = value if value in choices else DEFAULTS[f"translator_{kind}"]
+        if value == "claude" and not claude_on:
+            value = DEFAULTS[f"translator_{kind}"]
+        chosen[kind] = value
+    return chosen
+
+
+def migrate(conn) -> None:
+    """Bring settings saved by older versions up to date: per-kind translators and Claude Code model aliases."""
+    def get(key):
+        row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        return row[0] if row else None
+
+    def put(key, value):
+        conn.execute("INSERT OR REPLACE INTO settings VALUES (?, ?)", (key, value))
+
+    if get("translator_word") is None and any(get(k) is not None for k in OLD_KEYS):
+        claude_on = (get("claude_backend") or "off") != "off"
+        put("translator_word", "claude" if claude_on and (get("claude_words") or "1") == "1" else "dictionary")
+        lines = "claude" if claude_on and (get("claude_lines") or "1") == "1" else get("line_translator") or "mymemory"
+        put("translator_phrase", lines)
+        put("translator_line", lines)
+    conn.executemany("DELETE FROM settings WHERE key = ?", [(k,) for k in OLD_KEYS])
+    if (model := get("claude_model_code")) and claude.code_alias(model) != model:
+        put("claude_model_code", claude.code_alias(model))
+    conn.commit()
 
 
 def mymemory_status() -> dict:
@@ -54,11 +92,9 @@ def mymemory_status() -> dict:
 
 
 def claude_config() -> dict:
-    """Active Claude setup: backend, model and what it translates."""
+    """Active Claude setup: backend and model."""
     backend = setting("claude_backend")
     return {"backend": backend, "model": setting("claude_model_code" if backend == "code" else "claude_model_api"),
-            "words": backend != "off" and setting("claude_words") == "1",
-            "lines": backend != "off" and setting("claude_lines") == "1",
             "api_key": setting("claude_api_key") or os.environ.get("ANTHROPIC_API_KEY", "")}
 
 
@@ -81,13 +117,17 @@ def claude_page():
         for key in ("claude_model_api", "claude_model_code"):
             if form.get(key):
                 set_setting(key, form[key])
-        for key in ("claude_words", "claude_lines"):
-            set_setting(key, "1" if key in form else "0")
         flash("Claude settings saved.")
         return redirect(url_for("settings.claude_page"))
-    api_models = json.loads(setting("claude_api_models")) or list(claude.PRICES)
+    api_models = [m if isinstance(m, dict) else {"id": m, "line": None, "current": True}  # older versions saved IDs
+                  for m in json.loads(setting("claude_api_models"))] or claude.API_MODELS_FALLBACK
+    if setting("claude_model_api") not in {m["id"] for m in api_models}:
+        api_models = [{"id": setting("claude_model_api"), "line": None, "current": True, "saved": True}, *api_models]
+    code_models = dict(claude.CODE_MODELS)
+    if setting("claude_model_code") not in code_models:
+        code_models = {setting("claude_model_code"): f'{setting("claude_model_code")} (saved)', **code_models}
     return render_template("settings_claude.html", s={k: setting(k) for k in DEFAULTS}, backends=CLAUDE_BACKENDS,
-                           api_models=api_models, code_models=claude.CODE_MODELS, prices=claude.PRICES,
+                           api_models=api_models, code_models=code_models, prices=claude.PRICES,
                            has_env_key=bool(os.environ.get("ANTHROPIC_API_KEY")), usage=claude_usage())
 
 
@@ -98,8 +138,8 @@ def claude_test():
     try:
         if backend == "api":
             models = claude.list_api_models(claude_config()["api_key"])
-            set_setting("claude_api_models", json.dumps([m for m in models if m.startswith("claude")]))
-            return jsonify(ok=True, message=f"The API key works. {len(models)} models available.")
+            set_setting("claude_api_models", json.dumps(models))
+            return jsonify(ok=True, message=f"The API key works. {len(models)} models available; reload to see them.")
         if backend == "code":
             return jsonify(ok=True, message=claude.code_status())
         return jsonify(ok=False, message="Claude is off.")
@@ -114,7 +154,9 @@ def page():
         for key in ("deck_name", "deck_name_ja"):
             if key in form:
                 set_setting(key, form.get(key, "").strip() or DEFAULTS[key])
-        set_setting("line_translator", form.get("line_translator") if form.get("line_translator") in TRANSLATORS else "mymemory")
+        for kind, choices in TRANSLATORS.items():
+            value = form.get(f"translator_{kind}")
+            set_setting(f"translator_{kind}", value if value in choices else DEFAULTS[f"translator_{kind}"])
         set_setting("mymemory_email", form.get("mymemory_email", "").strip())
         set_setting("units", ",".join(form.getlist("unit")) or "word")
         set_setting("min_count", str(max(1, form.get("min_count", 2, type=int))))
@@ -123,6 +165,6 @@ def page():
         flash("Settings saved.")
         return redirect(url_for("settings.page"))
     values = {key: setting(key) for key in DEFAULTS}
-    return render_template("settings.html", s=values, translators=TRANSLATORS, mm=mymemory_status(), cc=claude_config(),
-                           japanese=japanese.available(),
+    return render_template("settings.html", s=values, translators=TRANSLATORS, kinds=KINDS, active=translators(),
+                           mm=mymemory_status(), cc=claude_config(), japanese=japanese.available(),
                            units={"word": "Words", "phrase": "Phrases", "line": "Lines"})

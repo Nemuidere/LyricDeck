@@ -17,6 +17,9 @@ dependencies = [
 claude = [
     "anthropic>=1.8.0",
 ]
+youtube = [
+    "ytmusicapi>=1.10",
+]
 ja = [
     "fugashi>=1.5.2",
     "unidic-lite>=1.0.8",

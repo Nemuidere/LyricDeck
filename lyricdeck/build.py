@@ -11,7 +11,7 @@ from flask import Blueprint, flash, jsonify, redirect, render_template, request,
 from . import cards, claude, deck, lang, translate
 from .db import get_db, get_setting, set_setting
 from .lang import code, lurl
-from .settings import claude_config, mymemory_status, setting
+from .settings import claude_config, mymemory_status, setting, translators
 
 bp = Blueprint("build", __name__)
 bp.before_request(lang.require_installed)
@@ -55,20 +55,20 @@ def review():
         count_repeats="count_repeats" in request.form,
         grammar="grammar" in request.form,
     )
-    cc = claude_config()
-    provider = "claude" if cc["lines"] else setting("line_translator")
+    cc, chosen = claude_config(), translators()
     with_context = setting("context_english") == "1"
-    if provider == "mymemory":
+    if "mymemory" in chosen.values():  # fill in what the free translator already did
         texts = [c["plain"] for c in candidates] + [l for c in candidates for l in c["context_plain"]]
         found = translate.cached(db, mymemory_provider(), texts)
         for c in candidates:
-            c["english"] = c["english"] or found.get(c["plain"], "")
-            if with_context and c["context_plain"] and all(l in found for l in c["context_plain"]):
+            if chosen[c["kind"]] == "mymemory":
+                c["english"] = c["english"] or found.get(c["plain"], "")
+            if (chosen["line"] == "mymemory" and with_context and c["context_plain"]
+                    and all(l in found for l in c["context_plain"])):
                 c["context_english"] = "\n".join(found[l] for l in c["context_plain"])
     return render_template("review.html", cards=candidates, songs=songs, deck_name=deck_name(),
-                           common_options=plugin.common_options,
-                           translator=provider, with_context=with_context,
-                           claude={k: cc[k] for k in ("backend", "model", "words", "lines")})
+                           common_options=plugin.common_options, translators=chosen, with_context=with_context,
+                           claude={k: cc[k] for k in ("backend", "model")})
 
 
 @bp.post("/export")
@@ -103,7 +103,7 @@ def export():
 def translate_texts():
     """Translate texts for the review page. Returns what was translated, plus an error if it stopped early."""
     texts = [t for t in request.get_json().get("texts", []) if isinstance(t, str)][:200]
-    if setting("line_translator") != "mymemory" or not texts:
+    if "mymemory" not in (translators()["phrase"], translators()["line"]) or not texts:
         return jsonify(translations={}, error=None)
     status, provider = mymemory_status(), mymemory_provider()
     if status["blocked_until"]:
@@ -152,7 +152,7 @@ def translate_claude():
         return jsonify(translations=result, error=str(e))
     by_id = {i["id"]: i for i in todo}
     translate.store(db, provider, {key(by_id[i]): english for i, english in done.items()})
-    db.execute("INSERT INTO claude_usage VALUES (?, ?, ?, ?, ?, ?)", (translate.today(), cc["backend"], cc["model"],
+    db.execute("INSERT INTO claude_usage VALUES (?, ?, ?, ?, ?, ?)", (translate.today(), cc["backend"], usage.get("model") or cc["model"],
                usage["input_tokens"], usage["output_tokens"], usage["cost_usd"]))
     db.commit()
     missing = len(todo) - len(done)

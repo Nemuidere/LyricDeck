@@ -34,6 +34,7 @@ def test_clean_title():
     assert lyrics.clean_title("Хочешь? (Official Video)") == "Хочешь?"
     assert lyrics.clean_title("7 Сорок") == "7 Сорок"
     assert lyrics.clean_title("03 - Песня") == "Песня"
+    assert lyrics.clean_title("Never Gonna Give You Up (4K Remaster)") == "Never Gonna Give You Up"
 
 
 def test_russian_results_first(monkeypatch):
@@ -68,3 +69,73 @@ def test_find_handles_network_errors(client, monkeypatch):
         raise URLError("offline")
     monkeypatch.setattr(lyrics, "_get", broken)
     assert "Could not reach LRCLIB" in client.get("/songs/find?q=x").get_data(as_text=True)
+
+
+class FakeClock:
+    """Stands in for time.monotonic/time.sleep so retry tests run instantly."""
+    def __init__(self):
+        self.now = 0.0
+
+    def sleep(self, seconds):
+        self.now += seconds
+
+
+def fake_urlopen(answers, calls):
+    import io
+    import json
+    from email.message import Message
+    from urllib.error import HTTPError
+
+    def urlopen(req, timeout):
+        calls.append(req.full_url)
+        answer = answers.pop(0) if len(answers) > 1 else answers[0]
+        if isinstance(answer, int):
+            headers = Message()
+            headers["Retry-After"] = "1"
+            raise HTTPError(req.full_url, answer, "Service Unavailable", headers, None)
+        if isinstance(answer, Exception):
+            raise answer
+        return io.BytesIO(json.dumps(answer).encode())
+    return urlopen
+
+
+def patch_network(monkeypatch, answers):
+    clock, calls = FakeClock(), []
+    monkeypatch.setattr(lyrics.time, "monotonic", lambda: clock.now)
+    monkeypatch.setattr(lyrics.time, "sleep", clock.sleep)
+    monkeypatch.setattr(lyrics.urllib.request, "urlopen", fake_urlopen(answers, calls))
+    return clock, calls
+
+
+def test_busy_lrclib_is_retried(client, monkeypatch):
+    clock, calls = patch_network(monkeypatch, [503, 503, RESULTS])
+    page = client.get("/songs/find?q=тест").get_data(as_text=True)
+    assert "Первая строка / Вторая строка" in page and len(calls) == 3 and clock.now == 2
+
+
+def test_busy_lrclib_gives_up_after_ten_seconds(client, monkeypatch):
+    clock, calls = patch_network(monkeypatch, [503])
+    page = client.get("/songs/find?q=тест").get_data(as_text=True)
+    assert "LRCLIB is busy right now" in page and "Check your connection" not in page
+    assert clock.now < lyrics.RETRY_FOR and len(calls) == 10
+
+
+def test_timeouts_are_retried(monkeypatch):
+    patch_network(monkeypatch, [TimeoutError("timed out"), RESULTS])
+    assert lyrics.search("x")
+
+
+def test_offline_fails_at_once(client, monkeypatch):
+    from urllib.error import URLError
+    _, calls = patch_network(monkeypatch, [URLError("Name or service not known")])
+    assert "Check your connection" in client.get("/songs/find?q=x").get_data(as_text=True) and len(calls) == 1
+
+
+def test_other_http_errors_are_not_retried(client, monkeypatch):
+    _, calls = patch_network(monkeypatch, [404])
+    assert "HTTP 404" in client.get("/songs/find?q=x").get_data(as_text=True) and len(calls) == 1
+
+
+def test_import_retries_too(client, monkeypatch):
+    patch_network(monkeypatch, [503, RESULTS[0]])
+    assert client.post("/songs/import", data={"lrclib_id": "1"}).headers["Location"].endswith("/songs/1/edit")

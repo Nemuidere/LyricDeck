@@ -54,6 +54,19 @@ def test_review_lists_cards(client):
     assert "любо́вь" not in page                 # appears once, below the minimum count
 
 
+def test_review_uses_the_translator_of_each_kind(client):
+    import json
+    with connect(str(client.application.config["DATABASE"])) as conn:
+        conn.execute("INSERT INTO translations VALUES ('mymemory', 'иду домой', 'MM going home')")
+    client.post("/settings/claude", data={"claude_backend": "code"})
+    client.post("/settings", data={"translator_word": "dictionary", "translator_phrase": "mymemory",
+                                   "translator_line": "claude"})
+    page = review(client)
+    chosen = json.loads(re.search(r"const TRANSLATORS = (\{.*?\})", page)[1])
+    assert chosen == {"word": "dictionary", "phrase": "mymemory", "line": "claude"}
+    assert "MM going home" in page and 'id="claude-btn"' in page
+
+
 def test_review_needs_a_song(client):
     assert client.post("/review", data={}, follow_redirects=True).status_code == 200
 

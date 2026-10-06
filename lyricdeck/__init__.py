@@ -26,6 +26,11 @@ def create_app(test_config: dict | None = None) -> Flask:
         app.config.update(test_config)
 
     db.init_app(app)
+    conn = db.connect(app.config["DATABASE"])
+    try:
+        settings.migrate(conn)
+    finally:
+        conn.close()
     app.register_blueprint(songs.bp)
     app.register_blueprint(build.bp)
     app.register_blueprint(songs.bp, name="ja_songs", url_prefix="/ja")

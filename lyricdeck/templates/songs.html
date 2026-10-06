@@ -4,7 +4,7 @@
   <h1>{{ lang_name }} songs</h1>
   <div class="row">
     <form method="get" action="{{ lurl('songs.find') }}" class="search">
-      <input name="q" placeholder="Find lyrics online: artist and title">
+      <input name="q" placeholder="Find lyrics: artist and title, or a YouTube link">
       <button class="ghost">Search</button>
     </form>
     <a class="button" href="{{ lurl('songs.new') }}">+ Paste lyrics</a>

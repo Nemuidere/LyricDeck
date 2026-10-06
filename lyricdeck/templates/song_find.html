@@ -2,7 +2,7 @@
 {% block content %}
 <h1>Find lyrics online</h1>
 <form method="get" class="search card">
-  <input name="q" value="{{ query }}" placeholder="Artist and title, e.g. Кино Группа крови" autofocus>
+  <input name="q" value="{{ query }}" placeholder="Artist and title (e.g. Кино Группа крови), or a YouTube video or playlist link" autofocus>
   <button>Search</button>
 </form>
 {% if error %}<p class="flash">{{ error }}</p>{% endif %}

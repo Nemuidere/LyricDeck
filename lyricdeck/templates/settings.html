@@ -10,18 +10,24 @@
 
   <section class="card stack">
     <h2>Translation</h2>
-    <p class="muted small">Single words come from the offline dictionary. Phrases and lines need a translator.</p>
-    <label>Phrases and lines
-      <select name="line_translator">
-        {% for value, label in translators.items() %}<option value="{{ value }}" {{ "selected" if s.line_translator == value }}>{{ label }}</option>{% endfor %}
+    <p class="muted small">Choose who translates each kind of card. Claude can be used once it is set up under
+      <a href="{{ url_for('settings.claude_page') }}">Settings → Claude</a>{% if cc.backend != "off" %} (active: {{ cc.model }}){% endif %}.</p>
+    {% for kind, label in kinds.items() %}
+    <label>{{ label }}
+      <select name="translator_{{ kind }}">
+        {% for value, name in translators[kind].items() %}
+        <option value="{{ value }}" {{ "selected" if s["translator_" ~ kind] == value }}
+                {{ "disabled" if value == "claude" and cc.backend == "off" }}>{{ name }}{% if value == "claude" and cc.backend == "off" %} (set up first){% endif %}</option>
+        {% endfor %}
       </select>
+      {% if s["translator_" ~ kind] != active[kind] %}<span class="warn small">Claude is off, so {{ translators[kind][active[kind]] }} is used for now.</span>{% endif %}
     </label>
+    {% endfor %}
     <label>Email for MyMemory (optional)
       <input type="email" name="mymemory_email" value="{{ s.mymemory_email }}" placeholder="you@example.com">
       <span class="muted small">MyMemory is free: 5,000 characters a day without an email, 50,000 with one. It is only sent to MyMemory with each request.</span>
     </label>
-    {% if cc.lines %}<p class="flash small">Phrases and lines are translated by Claude ({{ cc.model }}). Change it in <a href="{{ url_for('settings.claude_page') }}">Settings → Claude</a>.</p>{% endif %}
-    <label class="check"><input type="checkbox" name="context_english" {{ "checked" if s.context_english == "1" }}> Show the English of the song lines on the back of word cards</label>
+    <label class="check"><input type="checkbox" name="context_english" {{ "checked" if s.context_english == "1" }}> Show the English of the song lines on the back of word cards (translated by your Lines translator)</label>
   </section>
 
   <section class="card stack">

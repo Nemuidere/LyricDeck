@@ -86,7 +86,7 @@ def test_translate_endpoint_and_settings(client, monkeypatch):
     data = client.post("/translate", json={"texts": ["Ветер поёт"]}).get_json()
     assert data == {"translations": {"Ветер поёт": "EN(Ветер поёт)"}, "error": None}
 
-    client.post("/settings", data={"deck_name": "Mine", "line_translator": "none", "min_count": "3", "unit": ["word"]})
+    client.post("/settings", data={"deck_name": "Mine", "translator_phrase": "none", "translator_line": "none", "min_count": "3", "unit": ["word"]})
     assert client.post("/translate", json={"texts": ["Ещё"]}).get_json()["translations"] == {}
     page = client.get("/settings").get_data(as_text=True)
     assert 'value="Mine"' in page and "of 5,000 characters used" in page

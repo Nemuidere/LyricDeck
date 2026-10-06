@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block content %}
+<p class="muted small"><a href="{{ lurl('songs.find') }}">← Find lyrics</a></p>
+<div class="row">
+  <h1>{{ source.title if source else "Songs from YouTube" }}</h1>
+  <form method="get" action="{{ lurl('songs.find') }}" class="search">
+    <input name="q" value="{{ url }}" placeholder="YouTube video or playlist link">
+    <button class="ghost">Load</button>
+  </form>
+</div>
+
+{% if error == "missing-extra" %}
+<section class="card stack">
+  <h2>Playlists need the YouTube extra</h2>
+  <p class="muted">Reading a playlist uses ytmusicapi, an unofficial YouTube Music client that needs no account. Install it, then restart LyricDeck:</p>
+  <p><code>uv sync --extra youtube</code></p>
+  <p class="muted small">Links to single videos work without it.</p>
+</section>
+{% elif error %}
+<p class="flash">{{ error }}</p>
+{% endif %}
+
+{% if source %}
+<section class="card controls">
+  <p class="muted small">Each song is looked up on LRCLIB, a free crowd-sourced lyrics database. The best matches are picked for you
+    where the title, artist and length agree; check them, pick another version, or skip a song.</p>
+  <div class="options">
+    <label class="check"><input type="checkbox" id="hide-unmatched"> Hide songs without a good match</label>
+    <label class="check"><input type="checkbox" id="hide-library" checked> Hide songs already in my library</label>
+  </div>
+  <div class="row">
+    <p class="stats" id="yt-status"></p>
+    <button type="button" id="import-btn" disabled>Import picked</button>
+  </div>
+  {% if source.truncated %}<p class="muted small">Only the first {{ source.tracks | length }} songs of the playlist are shown.</p>{% endif %}
+</section>
+<ol class="list" id="tracks"></ol>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if source %}
+<script>
+const TRACKS = {{ source.tracks | tojson }};
+const MATCH_URL = "{{ lurl('songs.match') }}", IMPORT_URL = "{{ lurl('songs.import_song') }}";
+const SONGS_URL = "{{ lurl('songs.index') }}", PASTE_URL = "{{ lurl('songs.new') }}";
+const SHOWN = 3, WORKERS = 2;
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"})[c]);
+const time = s => s ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : "";
+const state = TRACKS.map(() => ({status: "waiting", candidates: [], error: null, imported: false}));
+
+const list = $("#tracks");
+TRACKS.forEach((t, i) => {
+  const li = document.createElement("li");
+  li.className = "yt-row";
+  li.dataset.i = i;
+  li.innerHTML = `<div class="row"><div><strong>${esc(t.title)}</strong>
+      ${t.artists.length ? `<span class="muted">· ${esc(t.artists.join(", "))}</span>` : ""}
+      ${t.duration ? `<span class="muted small">· ${time(t.duration)}</span>` : ""}</div>
+      <span class="badge yt-badge">waiting</span></div>
+    <div class="yt-cands"></div>`;
+  list.append(li);
+});
+const rowOf = i => list.children[i];
+const picked = i => rowOf(i).querySelector(`input[name="pick-${i}"]:checked`)?.value || "skip";
+
+function render(i) {
+  const s = state[i], row = rowOf(i), box = row.querySelector(".yt-cands"), badge = row.querySelector(".yt-badge");
+  const best = s.candidates[0];
+  row.dataset.good = +(best?.good || false);
+  row.dataset.library = +(best?.good && best.in_library || false);
+  badge.textContent = {waiting: "waiting", searching: "searching…", done: best ? (best.good && best.in_library ? "in library" : best.exact ? "exact match" : best.good ? "good match" : "check")
+                       : "no lyrics found", error: "LRCLIB busy"}[s.status];
+  if (s.imported) badge.textContent = s.imported;
+  if (s.status === "error") {
+    box.innerHTML = `<p class="warn small">${esc(s.error)} <button type="button" class="ghost retry">Retry</button></p>`;
+    box.querySelector(".retry").onclick = () => { s.status = "waiting"; render(i); queue.push(i); pump(); };
+  } else if (s.status === "done" && !best) {
+    box.innerHTML = `<p class="muted small">Not on LRCLIB under this title. <a href="${PASTE_URL}">Paste the lyrics</a> instead.</p>`;
+  } else if (s.status === "done") {
+    const choose = best.good && !best.in_library ? best.id : "skip";
+    box.innerHTML = s.candidates.map((c, n) => `
+      <label class="cand${n >= SHOWN ? " more" : ""}"${n >= SHOWN ? " hidden" : ""}>
+        <input type="radio" name="pick-${i}" value="${c.id}" ${c.id === choose ? "checked" : ""}>
+        <span><strong>${esc(c.title)}</strong> <span class="muted">· ${esc(c.artist)}${c.album ? " · " + esc(c.album) : ""}</span>
+          <span class="muted small">· ${time(c.duration)}${c.duration_diff !== null ? ` (${c.duration_diff >= 0 ? "+" : ""}${c.duration_diff} s)` : ""}
+            · ${c.lines} lines${c.note ? ` · <span class="warn">${esc(c.note)}</span>` : ""}</span>
+          ${c.exact ? '<span class="badge">exact</span>' : ""} ${c.in_library ? '<span class="badge">in library</span>' : ""}
+          <span class="preview">${esc(c.preview.join(" / "))}</span></span>
+      </label>`).join("") + `
+      <div class="row cand-foot">
+        <label class="check"><input type="radio" name="pick-${i}" value="skip" ${choose === "skip" ? "checked" : ""}> Skip this song</label>
+        ${s.candidates.length > SHOWN ? `<button type="button" class="ghost show-more">Show ${s.candidates.length - SHOWN} more</button>` : ""}
+      </div>`;
+    box.querySelector(".show-more")?.addEventListener("click", e => {
+      box.querySelectorAll(".more").forEach(el => el.hidden = false);
+      e.target.remove();
+    });
+    box.querySelectorAll("input").forEach(el => el.addEventListener("change", () => { applyFilters(); summary(); }));
+  }
+  applyFilters();
+  summary();
+}
+
+function applyFilters() {
+  const hideBad = $("#hide-unmatched").checked, hideLib = $("#hide-library").checked;
+  [...list.children].forEach((row, i) => {
+    const s = state[i];
+    row.hidden = !s.imported && s.status === "done" && picked(i) === "skip" &&
+      ((hideBad && row.dataset.good === "0") || (hideLib && row.dataset.library === "1"));
+  });
+}
+
+function summary() {
+  const done = state.filter(s => s.status === "done" || s.status === "error").length;
+  const toImport = state.map((s, i) => i).filter(i => !state[i].imported && picked(i) !== "skip");
+  const hidden = [...list.children].filter(r => r.hidden).length;
+  $("#yt-status").textContent = (done < TRACKS.length ? `Looking up ${done}/${TRACKS.length} songs… ` : `${TRACKS.length} songs. `)
+    + `${toImport.length} picked.` + (hidden ? ` ${hidden} hidden.` : "");
+  const btn = $("#import-btn");
+  btn.textContent = `Import picked (${toImport.length})`;
+  btn.disabled = importing || !toImport.length;
+}
+
+const queue = TRACKS.map((t, i) => i);
+let running = 0, importing = false;
+async function lookup(i) {
+  const t = TRACKS[i], params = new URLSearchParams({title: t.title});
+  t.artists.forEach(a => params.append("artist", a));
+  if (t.duration) params.set("duration", t.duration);
+  state[i].status = "searching"; render(i);
+  try {
+    const data = await (await fetch(`${MATCH_URL}?${params}`)).json();
+    Object.assign(state[i], data.error ? {status: "error", error: data.error} : {status: "done", candidates: data.candidates});
+  } catch (err) {
+    Object.assign(state[i], {status: "error", error: `Lookup failed: ${err}`});
+  }
+  render(i);
+}
+function pump() {
+  while (running < WORKERS && queue.length) {
+    running++;
+    lookup(queue.shift()).finally(() => { running--; pump(); });
+  }
+}
+
+$("#import-btn").addEventListener("click", async () => {
+  importing = true; summary();
+  let added = 0, failed = 0;
+  for (const [i, s] of state.entries()) {
+    const id = picked(i);
+    if (s.imported || id === "skip") continue;
+    rowOf(i).querySelector(".yt-badge").textContent = "importing…";
+    const data = await (await fetch(IMPORT_URL, {method: "POST", headers: {"Content-Type": "application/json"},
+                                                 body: JSON.stringify({lrclib_id: +id})})).json().catch(e => ({ok: false, error: String(e)}));
+    if (data.ok) {
+      s.imported = data.existing ? "✓ already in library" : "✓ imported";
+      added += !data.existing;
+      rowOf(i).querySelectorAll("input").forEach(el => el.disabled = true);
+    } else {
+      failed++;
+      rowOf(i).querySelector(".yt-badge").textContent = "import failed";
+      rowOf(i).querySelector(".yt-cands").insertAdjacentHTML("beforeend", `<p class="warn small">${esc(data.error)}</p>`);
+      continue;
+    }
+    render(i);
+  }
+  importing = false; summary();
+  $("#yt-status").innerHTML = `Imported ${added} song${added === 1 ? "" : "s"}${failed ? `, ${failed} failed (press Import again to retry)` : ""}.
+    <a href="${SONGS_URL}">Go to songs →</a>`;
+});
+["#hide-unmatched", "#hide-library"].forEach(s => $(s).addEventListener("change", () => { applyFilters(); summary(); }));
+summary();
+pump();
+</script>
+{% endif %}
+{% endblock %}

@@ -4,7 +4,7 @@ Turn song lyrics into Anki flashcards: Russian → English, with an optional Jap
 
 ## What it does
 
-- **Get lyrics.** Search [LRCLIB](https://lrclib.net) (free, no account) or paste them.
+- **Get lyrics.** Search [LRCLIB](https://lrclib.net) (free, no account), paste them, or paste a YouTube video or playlist link and pick the right lyrics for each song.
 - **Find cards.** You get words, repeated phrases and whole lines. Word forms are grouped (любви → любовь) using word types taken from the surrounding words.
 - **Review before exporting.**
   - A slider picks the words you need to understand X% of the song.
@@ -15,9 +15,9 @@ Turn song lyrics into Anki flashcards: Russian → English, with an optional Jap
   - Front: the stressed dictionary form (любо́вь) with the form as sung.
   - Back: the English, a grammar note ("genitive singular"), the verb's aspect pair, up to three song lines with the word in bold, and optionally their English.
 - **Export.** Download an `.apkg` file, or send the cards straight to a running Anki with AnkiConnect. Re-exporting updates existing cards instead of duplicating them.
-- **Translation.**
-  - Single words come from an offline dictionary.
-  - Phrases and lines use MyMemory (free).
+- **Translation.** Under **Settings**, choose who translates each kind of card:
+  - Words: the offline dictionary, or Claude for the meaning used in the song.
+  - Phrases and lines: MyMemory (free), Claude, or none (you type them).
   - Claude is optional, through an API key or your own Claude Code login.
 
 ## Setup
@@ -40,10 +40,10 @@ MyMemory allows 5,000 characters a day, or 50,000 if you add your email under **
 
 ### Claude (optional)
 
-Set it up under **Settings → Claude**. Nothing is sent to Claude until you press "Translate with Claude" on the review page.
+Set it up under **Settings → Claude**, then pick Claude for words, phrases or lines under **Settings → Translation**. Nothing is sent to Claude until you press "Translate with Claude" on the review page.
 
 - **API key:** run `uv sync --extra claude` and paste a key from [platform.claude.com](https://platform.claude.com/settings/keys). Usage is billed per token, roughly 3–15 cents per song.
-- **Your Claude Code login:** for personal use with a Pro or Max plan. Install [Claude Code](https://code.claude.com), run `claude` once and log in. LyricDeck then runs your local `claude -p` command, which Anthropic covers with the plan's monthly Agent SDK credit. LyricDeck never reads your Claude credentials.
+- **Your Claude Code login:** for personal use with a Pro or Max plan. Install [Claude Code](https://code.claude.com), run `claude` once and log in. LyricDeck then runs your local `claude -p` command, which Anthropic covers with the plan's monthly Agent SDK credit. LyricDeck never reads your Claude credentials. The models are picked by name (Sonnet, Opus, …) and always mean the latest version.
 
 ### Japanese (optional)
 
@@ -65,6 +65,18 @@ Without these steps, Russian works as before and the Japanese pages just explain
 - **Hide common words** uses JMdict's frequency ranks: top 500 / 1000 / 2000 / 5000.
 - **Lyrics search** ranks texts in Japanese script first and flags romaji, which can't be analysed.
 
+### YouTube links (optional)
+
+Paste a YouTube video or playlist link into the lyrics search. Each song is looked up on LRCLIB by title, artist and length; the best matches are picked for you, and you can choose another version or skip a song before importing.
+
+Single videos work as they are. Playlists need ytmusicapi, an unofficial YouTube Music client that needs no account:
+
+```bash
+uv sync --extra youtube
+```
+
+Matching works best with official uploads and YouTube Music tracks. Fan uploads with romanized or translated titles ("Gruppa krovi") often find nothing. Playlists are read up to 300 songs.
+
 ### Send to Anki (optional)
 
 Install the [AnkiConnect](https://ankiweb.net/shared/info/2055492159) add-on and keep Anki open, then use **Send to Anki** on the review page. Exporting an `.apkg` file works without it.
@@ -74,7 +86,7 @@ Install the [AnkiConnect](https://ankiweb.net/shared/info/2055492159) add-on and
 - **Dictionary forms are guessed.** The guess is usually right; the review screen is where you catch the misses.
 - **The dictionary data is from 2021.** It covered about 96% of words in a 15-song test. Slang and names may need Claude or a manual translation.
 - **Japanese readings come from UniDic (2013).** Some modern slang is split wrongly, special sung readings (運命 sung as さだめ) can't be detected, and passive and potential forms can't be told apart. The review screen is where you fix these.
-- **The free services are best-effort.** MyMemory and LRCLIB can be slow or rate-limited.
+- **The free services are best-effort.** MyMemory and LRCLIB can be slow or rate-limited. When LRCLIB reports that it is busy, LyricDeck keeps trying for 10 seconds before showing an error.
 - **Lyrics are copyrighted.** They are stored only in your local `data/` folder, which is not committed. Keep the decks you make for personal use.
 
 ## Credits
@@ -83,7 +95,7 @@ Install the [AnkiConnect](https://ankiweb.net/shared/info/2055492159) add-on and
 - **Word frequencies:** Lyashevskaya & Sharoff, *Russian National Corpus frequency dictionary* (2009).
 - **Word forms:** [pymorphy3](https://github.com/no-plagiarism/pymorphy3) and [spaCy](https://spacy.io) `ru_core_news_sm`.
 - **Japanese:** [JMdict](https://www.edrdg.org/wiki/index.php/JMdict-EDICT_Dictionary_Project), © Electronic Dictionary Research and Development Group, used under [CC BY-SA 4.0](https://www.edrdg.org/edrdg/licence.html). Word splitting, readings and pitch accent come from [fugashi](https://github.com/polm/fugashi) with [UniDic](https://clrd.ninjal.ac.jp/unidic/) (unidic-lite).
-- **Other services and libraries:** lyrics from [LRCLIB](https://lrclib.net), translation by [MyMemory](https://mymemory.translated.net), Anki packages by [genanki](https://github.com/kerrickstaley/genanki).
+- **Other services and libraries:** lyrics from [LRCLIB](https://lrclib.net), YouTube playlists via [ytmusicapi](https://github.com/sigma67/ytmusicapi), translation by [MyMemory](https://mymemory.translated.net), Anki packages by [genanki](https://github.com/kerrickstaley/genanki).
 
 ## License
 

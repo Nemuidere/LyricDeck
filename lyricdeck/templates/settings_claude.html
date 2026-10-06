@@ -21,7 +21,11 @@ Nothing is sent to Claude until you press "Translate with Claude" on the review 
     {% if s.claude_api_key %}<label class="check"><input type="checkbox" name="forget_key"> Forget the saved key</label>{% endif %}
     <label>Model
       <select name="claude_model_api">
-        {% for m in api_models %}<option value="{{ m }}" {{ "selected" if m == s.claude_model_api }}>{{ m }}{% if m in prices %} (${{ prices[m][0] }} / ${{ prices[m][1] }} per million tokens in / out){% endif %}</option>{% endfor %}
+        {% for group, models in [("Current", api_models | selectattr("current") | list), ("Legacy", api_models | rejectattr("current") | list)] if models %}
+        <optgroup label="{{ group }}">
+          {% for m in models %}<option value="{{ m.id }}" {{ "selected" if m.id == s.claude_model_api }}>{{ m.id }}{% if m.saved %} (saved){% endif %}{% if m.id in prices %} (${{ prices[m.id][0] }} / ${{ prices[m.id][1] }} per million tokens in / out){% endif %}</option>{% endfor %}
+        </optgroup>
+        {% endfor %}
       </select>
     </label>
     <p class="muted small">A typical song costs roughly 3–15 cents depending on the model. "Test connection" refreshes this list from your account (free).</p>
@@ -35,16 +39,13 @@ Nothing is sent to Claude until you press "Translate with Claude" on the review 
       <a href="https://code.claude.com" target="_blank" rel="noopener">code.claude.com</a>, run <code>claude</code> once and log in, then press "Test connection".</p>
     <label>Model
       <select name="claude_model_code">
-        {% for m in code_models %}<option value="{{ m }}" {{ "selected" if m == s.claude_model_code }}>{{ m }}</option>{% endfor %}
+        {% for m, label in code_models.items() %}<option value="{{ m }}" {{ "selected" if m == s.claude_model_code }}>{{ label }}</option>{% endfor %}
       </select>
     </label>
   </section>
 
-  <section class="card stack">
-    <h2>Use Claude for</h2>
-    <label class="check"><input type="checkbox" name="claude_words" {{ "checked" if s.claude_words == "1" }}> Words: the meaning used in the song, instead of the dictionary's list of meanings</label>
-    <label class="check"><input type="checkbox" name="claude_lines" {{ "checked" if s.claude_lines == "1" }}> Phrases and lines (instead of MyMemory)</label>
-  </section>
+  <p class="muted small">Choose what Claude translates (words, phrases, lines) under
+    <a href="{{ url_for('settings.page') }}">Settings → Translation</a>.</p>
 
   <div class="row end">
     <span class="muted small" id="test-result"></span>

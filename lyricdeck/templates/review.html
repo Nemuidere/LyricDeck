@@ -32,7 +32,7 @@
     </div>
     <p class="stats" id="stats"></p>
     <p class="stats" id="translate-status"></p>
-    {% if claude.words or claude.lines %}
+    {% if "claude" in translators.values() %}
     <div class="row end"><button type="button" class="ghost" id="claude-btn">Translate ticked cards with Claude ({{ claude.model }})</button></div>
     {% endif %}
   </section>
@@ -180,7 +180,7 @@ $("#review").addEventListener("submit", () => {
   setTimeout(() => rows.forEach(r => r.querySelectorAll("input").forEach(el => el.disabled = false)), 0);
 });
 
-const TRANSLATOR = {{ translator | tojson }}, WITH_CONTEXT = {{ with_context | tojson }};
+const TRANSLATORS = {{ translators | tojson }}, WITH_CONTEXT = {{ with_context | tojson }};
 const CLAUDE = {{ claude | tojson }}, SONG_IDS = {{ songs | map(attribute="id") | list | tojson }};
 // Remember machine-filled values so later translators never overwrite what the user typed.
 rows.forEach(r => { const e = r.querySelector("input[name^=english]"); e.dataset.auto = e.value; });
@@ -191,14 +191,15 @@ let translating = false, quotaHit = false, again = false;
 
 // Translate ticked cards only, so the free daily quota isn't spent on cards that won't be exported.
 async function translateMissing() {
-  if (TRANSLATOR !== "mymemory" || quotaHit) return;
+  const byMyMemory = kind => TRANSLATORS[kind] === "mymemory";
+  if (!["phrase", "line"].some(byMyMemory) || quotaHit) return;
   if (translating) { again = true; return; }
   const status = $("#translate-status");
   const englishOf = r => r.querySelector(`[name="english-${r.dataset.index}"]`);
   const ctxOf = r => r.querySelector(`[name="context_english-${r.dataset.index}"]`);
   const chosen = rows.filter(r => ticked(r) && !r.hidden);
-  const needLine = chosen.filter(r => r.dataset.kind !== "word" && !englishOf(r).value);
-  const needCtx = WITH_CONTEXT ? chosen.filter(r => CARDS[r.dataset.index].context_plain.length && !ctxOf(r).value) : [];
+  const needLine = chosen.filter(r => byMyMemory(r.dataset.kind) && !englishOf(r).value);
+  const needCtx = WITH_CONTEXT && byMyMemory("line") ? chosen.filter(r => CARDS[r.dataset.index].context_plain.length && !ctxOf(r).value) : [];
   const texts = [...new Set([...needLine.map(r => CARDS[r.dataset.index].plain),
                              ...needCtx.flatMap(r => CARDS[r.dataset.index].context_plain)])].filter(t => !requested.has(t));
   if (!texts.length) return;
@@ -247,14 +248,15 @@ $("#claude-btn")?.addEventListener("click", async e => {
   const items = [], targets = {};
   chosen.forEach(r => {
     const c = CARDS[r.dataset.index], i = +r.dataset.index;
-    if (c.kind === "word" && CLAUDE.words)
+    if (TRANSLATORS[c.kind] !== "claude") return;
+    if (c.kind === "word")
       items.push({id: i, kind: "word", text: plain(r.querySelector(`[name="front-${i}"]`).value),
                   sung: plain(c.sung), line: c.context_plain[0] || ""});
-    if (c.kind !== "word" && CLAUDE.lines)
+    else
       items.push({id: i, kind: c.kind, text: c.plain, line: c.kind === "phrase" ? c.context_plain[0] || "" : ""});
   });
   const lineIds = {};
-  if (CLAUDE.lines && WITH_CONTEXT)
+  if (TRANSLATORS.line === "claude" && WITH_CONTEXT)
     chosen.forEach(r => CARDS[r.dataset.index].context_plain.forEach(l => {
       if (!(l in lineIds)) { lineIds[l] = 100000 + Object.keys(lineIds).length; items.push({id: lineIds[l], kind: "line", text: l}); }
     }));
@@ -268,7 +270,7 @@ $("#claude-btn")?.addEventListener("click", async e => {
     chosen.forEach(r => {
       if (t[r.dataset.index]) setAuto(r.querySelector("input[name^=english]"), t[r.dataset.index]);
       const lines = CARDS[r.dataset.index].context_plain;
-      if (CLAUDE.lines && WITH_CONTEXT && lines.length && lines.every(l => t[lineIds[l]])) {
+      if (TRANSLATORS.line === "claude" && WITH_CONTEXT && lines.length && lines.every(l => t[lineIds[l]])) {
         r.querySelector(`[name="context_english-${r.dataset.index}"]`).value = lines.map(l => t[lineIds[l]]).join("\n");
         r.querySelector(".ctx-en").textContent = lines.map(l => t[lineIds[l]]).join(" / ");
       }

@@ -9,12 +9,18 @@ import shutil
 import subprocess
 import tempfile
 
-API_MODELS_DEFAULT = "claude-sonnet-5"
-CODE_MODELS = ["claude-opus-5-5", "claude-fable-5-1", "claude-sonnet-5", "claude-haiku-4-5"]
-CODE_MODEL_DEFAULT = "claude-opus-5-5"
+API_MODELS_DEFAULT = "claude-sonnet-5-5"
+# Shown until "Test connection" lists the models of the user's own key.
+API_MODELS_FALLBACK = [{"id": m, "line": None, "current": True} for m in
+                       ("claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-1", "claude-haiku-4-5")]
+# Claude Code takes aliases that always mean the latest model of the line, so this list never goes stale.
+CODE_MODELS = {"sonnet": "Sonnet (latest)", "opus": "Opus (latest)", "fable": "Fable (latest)",
+               "haiku": "Haiku (latest)"}
+CODE_MODEL_DEFAULT = "sonnet"
 # USD per million tokens (input, output), from platform.claude.com/docs/en/about-claude/pricing.
-PRICES = {"claude-fable-5-1": (10, 50), "claude-opus-5-5": (4, 20), "claude-opus-5": (5, 25),
-          "claude-sonnet-5": (2, 10), "claude-haiku-4-5": (1, 5)}
+PRICES = {"claude-fable-5-1": (10, 50), "claude-opus-5-5": (4, 20), "claude-sonnet-5-5": (2, 10),
+          "claude-haiku-4-5": (1, 5), "claude-fable-5": (10, 50), "claude-opus-5": (5, 25),
+          "claude-sonnet-5": (2, 10)}
 TIMEOUT = 600
 
 SCHEMA = {
@@ -102,7 +108,7 @@ def translate_api(items: list[dict], lyrics: list[str], model: str, api_key: str
         raise ClaudeError("The answer was too long. Tick fewer cards and try again.")
     text = next(b.text for b in message.content if b.type == "text")
     price = PRICES.get(model)
-    usage = {"input_tokens": message.usage.input_tokens, "output_tokens": message.usage.output_tokens,
+    usage = {"model": message.model or model, "input_tokens": message.usage.input_tokens, "output_tokens": message.usage.output_tokens,
              "cost_usd": (message.usage.input_tokens * price[0] + message.usage.output_tokens * price[1]) / 1e6
              if price else None}
     return _result(json.loads(text), items), usage
@@ -136,18 +142,39 @@ def translate_code(items: list[dict], lyrics: list[str], model: str,
     if out.get("is_error") or proc.returncode != 0:
         raise ClaudeError(f"Claude Code failed: {str(out.get('result') or proc.stderr)[:300]}")
     usage = out.get("usage") or {}
+    by_model = out.get("modelUsage") or {}
     return _result(out.get("structured_output") or {}, items), {
+        # the model the alias resolved to, so the usage log names a real model
+        "model": max(by_model, key=lambda m: (by_model[m] or {}).get("outputTokens", 0)) if by_model else model,
         "input_tokens": sum(usage.get(k, 0) for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")),
         "output_tokens": usage.get("output_tokens", 0),
         "cost_usd": out.get("total_cost_usd"),
     }
 
 
-def list_api_models(api_key: str) -> list[str]:
-    """Current model IDs for this key (free call; also checks the key)."""
+def code_alias(model: str) -> str:
+    """Claude Code alias for a pinned model ID saved by older versions (claude-sonnet-5 -> sonnet)."""
+    return next((alias for alias in CODE_MODELS if model.startswith(f"claude-{alias}")), model)
+
+
+def _line(model) -> str | None:
+    line = getattr(model, "line", None) or (getattr(model, "model_extra", None) or {}).get("line")
+    return line or next((alias for alias in CODE_MODELS if model.id.startswith(f"claude-{alias}")), None)
+
+
+def list_api_models(api_key: str) -> list[dict]:
+    """Claude models for this key (free call; also checks the key). The API lists the newest first, so the
+    first model of each line (opus, sonnet, ...) is the current one and the rest are legacy."""
     anthropic, client = _api_client(api_key)
     try:
-        return [m.id for m in client.models.list()]
+        models, seen = [], set()
+        for m in client.models.list():
+            if not m.id.startswith("claude"):
+                continue
+            line = _line(m)
+            models.append({"id": m.id, "line": line, "current": line is None or line not in seen})
+            seen.add(line)
+        return sorted(models, key=lambda m: not m["current"])
     except anthropic.AuthenticationError as e:
         raise ClaudeError("The API key was rejected.") from e
     except anthropic.APIConnectionError as e:
